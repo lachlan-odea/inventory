@@ -6,15 +6,31 @@ import { CheckOutDialog } from '../components/CheckOutDialog'
 import { ImportDialog } from '../components/ImportDialog'
 import { EmptyState, ItemThumb, StockBadge, ConditionBadge, ServiceBadge } from '../components/ui'
 import { plural } from '../lib/format'
-import type { Item } from '../lib/types'
+import { STUDIO_LOCATIONS, type Item } from '../lib/types'
 
 type StockFilter = 'all' | 'available' | 'out'
+
+/** Remembered per browser, so each studio's staff land on their own gear. */
+const LOCATION_STORAGE_KEY = 'inventory.location'
+
+/** "syd ", "Syd" and "SYD" are the same studio. */
+function locationKey(location: string): string {
+  return location.trim().toUpperCase()
+}
+
+function readSavedLocation(): string {
+  try {
+    return localStorage.getItem(LOCATION_STORAGE_KEY) || 'all'
+  } catch {
+    return 'all'
+  }
+}
 
 export function Inventory() {
   const { items, openLoansByItem } = useStore()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
-  const [location, setLocation] = useState('all')
+  const [location, setLocationState] = useState(readSavedLocation)
   const [stock, setStock] = useState<StockFilter>('all')
   const [showArchived, setShowArchived] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -30,12 +46,33 @@ export function Inventory() {
     [items],
   )
 
+  // The studios are always offered, plus any other location the data uses,
+  // each with how many items (in the current archived/active view) it holds.
+  const locationCounts = useMemo(() => {
+    const counts = new Map<string, number>(STUDIO_LOCATIONS.map((l) => [l, 0]))
+    for (const item of items) {
+      if (item.archived !== showArchived) continue
+      const key = locationKey(item.location)
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return [...counts]
+  }, [items, showArchived])
+
+  function setLocation(value: string) {
+    setLocationState(value)
+    try {
+      localStorage.setItem(LOCATION_STORAGE_KEY, value)
+    } catch {
+      // Private mode or blocked storage — the filter just won't be remembered.
+    }
+  }
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     return items.filter((item) => {
       if (item.archived !== showArchived) return false
       if (category !== 'all' && item.category !== category) return false
-      if (location !== 'all' && item.location !== location) return false
+      if (location !== 'all' && locationKey(item.location) !== location) return false
       if (stock === 'available' && item.availableQty === 0) return false
       if (stock === 'out' && item.availableQty === item.totalQty) return false
       if (!q) return true
@@ -74,6 +111,25 @@ export function Inventory() {
       </header>
 
       <div className="toolbar">
+        <div className="segmented" role="group" aria-label="Studio location">
+          <button
+            className={location === 'all' ? 'is-on' : undefined}
+            aria-pressed={location === 'all'}
+            onClick={() => setLocation('all')}
+          >
+            All
+          </button>
+          {locationCounts.map(([loc, count]) => (
+            <button
+              key={loc}
+              className={location === loc ? 'is-on' : undefined}
+              aria-pressed={location === loc}
+              onClick={() => setLocation(loc)}
+            >
+              {loc} <span className="muted">{count}</span>
+            </button>
+          ))}
+        </div>
         <input
           type="search"
           className="toolbar__search"
@@ -89,16 +145,6 @@ export function Inventory() {
             </option>
           ))}
         </select>
-        {locations.length > 1 && (
-          <select value={location} onChange={(e) => setLocation(e.target.value)}>
-            <option value="all">All locations</option>
-            {locations.map((l) => (
-              <option key={l} value={l}>
-                {l}
-              </option>
-            ))}
-          </select>
-        )}
         <select value={stock} onChange={(e) => setStock(e.target.value as StockFilter)}>
           <option value="all">Any availability</option>
           <option value="available">On the shelf</option>

@@ -351,7 +351,9 @@ const cases: Case[] = [
     route: '/inventory',
     element: <Inventory />,
     store: buildStore(),
-    expect: ['Sony A6500', '1 of 2 in', 'STUDIO 102', 'SONY ILCE-6500', 'Not fit for service'],
+    expect: ['Sony A6500', '1 of 2 in', 'STUDIO 102', 'SONY ILCE-6500', 'Not fit for service', 'SYD <span class="muted">2', 'ORD <span class="muted">0', 'SYD EVENT <span class="muted">0'],
+    // The only MEL item is archived, so MEL gets no button in the active view.
+    reject: ['MEL <span'],
   },
   {
     name: 'Inventory (empty)',

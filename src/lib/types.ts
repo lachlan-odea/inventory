@@ -46,7 +46,7 @@ export interface Item {
 }
 
 /** Always offered in the location field, even before any item uses them. */
-export const STUDIO_LOCATIONS = ['SYD', 'ORD']
+export const STUDIO_LOCATIONS = ['SYD', 'SYD EVENT', 'ORD']
 
 export type ItemCondition = 'good' | 'worn' | 'damaged' | 'repair'
 
