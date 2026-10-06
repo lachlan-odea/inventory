@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ isSsrBuild }) => ({
+  // GitHub Pages serves the app from /<repo>/; the deploy workflow sets this.
+  // Dev, emulators and Firebase Hosting all stay at the root.
+  base: process.env.VITE_BASE_PATH ?? '/',
   plugins: [react()],
   server: {
     port: 5173,

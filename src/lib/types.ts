@@ -157,10 +157,10 @@ export interface NewPersonInput {
   notes: string
 }
 
-export interface CheckOutInput {
-  itemId: string
+/** One borrower taking one or more items, all due back together. */
+export interface BookingCheckOutInput {
+  lines: KitComponent[]
   personId: string
-  qty: number
   /** Local date string (yyyy-mm-dd) from the date input, or '' for no due date. */
   dueDate: string
   notes: string
@@ -198,6 +198,15 @@ export interface KitCheckOutInput {
   /** Local date string (yyyy-mm-dd), or '' for no due date. */
   dueDate: string
   notes: string
+}
+
+export interface KitCheckInInput {
+  kitCheckoutId: string
+  /** The loans coming back, each returned in full, with its own condition. */
+  returns: Array<{ loanId: string; condition: ItemCondition }>
+  /** Shared across every item returned. */
+  notes: string
+  photo?: File | null
 }
 
 export interface CheckInInput {

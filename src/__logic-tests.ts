@@ -3,6 +3,7 @@
  * row validation and date maths. Imported by __smoke.tsx so `npm run smoke`
  * runs everything in one go.
  */
+import { Timestamp } from 'firebase/firestore'
 import { cellToString, parseCsv, toSheetData } from './lib/import/parseFile'
 import {
   ITEM_FIELDS,
@@ -19,8 +20,9 @@ import {
   personDedupeKey,
 } from './lib/import/mapping'
 import { daysFromToday, parseDueDate, toDateInputValue, toLoanView } from './lib/format'
+import { groupKitCheckouts, kitStatus, normaliseComponents } from './lib/kits'
 import type { SheetData } from './lib/import/parseFile'
-import type { Loan } from './lib/types'
+import type { Item, Kit, Loan } from './lib/types'
 
 let failures = 0
 
@@ -430,6 +432,9 @@ export function runLogicTests(): number {
     returnNotes: '',
     returnPhotoUrl: null,
     returnPhotoPath: null,
+    kitId: null,
+    kitName: null,
+    kitCheckoutId: null,
   }
   equal('outstanding = qty - returned', toLoanView(partial).outstandingQty, 4)
   equal('no due date is never overdue', toLoanView(partial).isOverdue, false)
@@ -438,6 +443,77 @@ export function runLogicTests(): number {
     toLoanView({ ...partial, returnedQty: 9 }).outstandingQty,
     0,
   )
+
+
+  console.log('\nKits')
+
+  equal(
+    'normalise merges duplicates, drops blanks and zero quantities',
+    normaliseComponents([
+      { itemId: 'a', qty: 1 },
+      { itemId: '', qty: 3 },
+      { itemId: 'b', qty: 0 },
+      { itemId: 'a', qty: 2.7 },
+      { itemId: 'c', qty: Number.NaN },
+    ]),
+    [{ itemId: 'a', qty: 3 }],
+  )
+
+  const stockItem = (id: string, availableQty: number, archived = false) =>
+    ({ id, name: id, availableQty, totalQty: 5, archived }) as Item
+  const stock = new Map([
+    ['cam', stockItem('cam', 1)],
+    ['xlr', stockItem('xlr', 2)],
+    ['old', stockItem('old', 1, true)],
+  ])
+  const kitOf = (components: Kit['components']) =>
+    ({ id: 'k', name: 'Kit', description: '', components, archived: false }) as Kit
+
+  const ready = kitStatus(kitOf([{ itemId: 'cam', qty: 1 }, { itemId: 'xlr', qty: 2 }]), stock)
+  check('kit is ready when every line is covered', ready.ready)
+  equal('total units sums every line', ready.totalUnits, 3)
+
+  const short = kitStatus(
+    kitOf([
+      { itemId: 'cam', qty: 1 },
+      { itemId: 'xlr', qty: 3 },
+      { itemId: 'old', qty: 1 },
+      { itemId: 'gone', qty: 1 },
+    ]),
+    stock,
+  )
+  check('kit is blocked when any line is short', !short.ready)
+  equal(
+    'every blocking reason is reported',
+    short.blocked.map((l) => l.problem),
+    ['Only 2 available', 'Archived', 'No longer in the inventory'],
+  )
+  check('an empty kit is never ready', !kitStatus(kitOf([]), stock).ready)
+
+  const kitLoan = (id: string, kitCheckoutId: string | null, overdue = false) =>
+    toLoanView({
+      ...partial,
+      id,
+      kitId: kitCheckoutId ? 'k' : null,
+      kitName: kitCheckoutId ? 'Kit' : null,
+      kitCheckoutId,
+      dueAt: overdue ? Timestamp.fromDate(new Date(Date.now() - 3 * 86400000)) : null,
+    })
+  const groups = groupKitCheckouts([
+    kitLoan('a', 'co1'),
+    kitLoan('b', 'co1', true),
+    kitLoan('c', 'co2'),
+    kitLoan('solo', null),
+  ])
+  equal(
+    'open loans group by kit checkout; plain loans are left out',
+    groups.map((g) => [g.kitCheckoutId, g.loans.map((l) => l.id)]),
+    [
+      ['co1', ['a', 'b']],
+      ['co2', ['c']],
+    ],
+  )
+  equal('a kit checkout is overdue if any item is', groups.map((g) => g.isOverdue), [true, false])
 
   return failures
 }

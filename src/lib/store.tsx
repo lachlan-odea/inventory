@@ -7,21 +7,23 @@ import {
   type ReactNode,
 } from 'react'
 import { ensureSignedIn, isConfigured } from './firebase'
-import { watchItems, watchLoanHistory, watchOpenLoans, watchPeople } from './db'
+import { watchItems, watchKits, watchLoanHistory, watchOpenLoans, watchPeople } from './db'
 import { toLoanView } from './format'
-import type { Item, Loan, LoanView, Person } from './types'
+import type { Item, Kit, Loan, LoanView, Person } from './types'
 
 export interface StoreValue {
   ready: boolean
   error: string | null
   items: Item[]
   people: Person[]
+  kits: Kit[]
   /** Loans with units still out, soonest due first. */
   openLoans: LoanView[]
   /** Recent loan records including returned ones, newest checkout first. */
   history: LoanView[]
   itemsById: Map<string, Item>
   peopleById: Map<string, Person>
+  kitsById: Map<string, Kit>
   /** Open loans keyed by item, for the "who has it" list on an item. */
   openLoansByItem: Map<string, LoanView[]>
   /** Open loans keyed by person. */
@@ -34,9 +36,16 @@ export const StoreContext = createContext<StoreValue | null>(null)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Item[]>([])
   const [people, setPeople] = useState<Person[]>([])
+  const [kits, setKits] = useState<Kit[]>([])
   const [openLoansRaw, setOpenLoansRaw] = useState<Loan[]>([])
   const [historyRaw, setHistoryRaw] = useState<Loan[]>([])
-  const [loaded, setLoaded] = useState({ items: false, people: false, loans: false, history: false })
+  const [loaded, setLoaded] = useState({
+    items: false,
+    people: false,
+    kits: false,
+    loans: false,
+    history: false,
+  })
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -59,6 +68,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           watchPeople((rows) => {
             setPeople(rows)
             setLoaded((s) => ({ ...s, people: true }))
+          }, fail),
+          watchKits((rows) => {
+            setKits(rows)
+            setLoaded((s) => ({ ...s, kits: true }))
           }, fail),
           watchOpenLoans((rows) => {
             setOpenLoansRaw(rows)
@@ -90,18 +103,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     return {
-      ready: loaded.items && loaded.people && loaded.loans && loaded.history,
+      ready: loaded.items && loaded.people && loaded.kits && loaded.loans && loaded.history,
       error,
       items,
       people,
+      kits,
       openLoans,
       history,
       itemsById: new Map(items.map((i) => [i.id, i])),
       peopleById: new Map(people.map((p) => [p.id, p])),
+      kitsById: new Map(kits.map((k) => [k.id, k])),
       openLoansByItem,
       openLoansByPerson,
     }
-  }, [items, people, openLoansRaw, historyRaw, loaded, error])
+  }, [items, people, kits, openLoansRaw, historyRaw, loaded, error])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

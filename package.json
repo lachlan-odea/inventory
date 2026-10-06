@@ -1,9 +1,9 @@
 {
-  "name": "studio-stock",
+  "name": "studio-inventory",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Studio stock tracking — inventory, check-in/check-out, borrowers, due dates",
+  "description": "Studio Inventory — gear tracking, kits, check-in/check-out, borrowers, due dates",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

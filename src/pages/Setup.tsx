@@ -10,7 +10,7 @@ export function Setup() {
         <span className="setup__logo" aria-hidden="true">
           📦
         </span>
-        <h1>Studio Stock</h1>
+        <h1>Studio Inventory</h1>
         <p className="muted">One step left — point the app at a Firebase project.</p>
 
         <ol className="setup__steps">

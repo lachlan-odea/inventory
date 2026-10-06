@@ -43,13 +43,17 @@ export function Loans() {
     const q = search.trim().toLowerCase()
     if (!q) return base
     return base.filter((l) =>
-      [l.itemName, l.personName, l.checkoutNotes, l.returnNotes].join(' ').toLowerCase().includes(q),
+      [l.itemName, l.kitName ?? '', l.personName, l.checkoutNotes, l.returnNotes]
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
     )
   }, [filter, search, openLoans, history])
 
   function exportCsv() {
     const header = [
       'Item',
+      'Kit',
       'Borrower',
       'Qty',
       'Returned qty',
@@ -63,6 +67,7 @@ export function Loans() {
     ]
     const lines = rows.map((l) => [
       l.itemName,
+      l.kitName ?? '',
       l.personName,
       l.qty,
       l.returnedQty,
@@ -81,7 +86,7 @@ export function Loans() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `studio-stock-${filter}-${toDateInputValue(new Date())}.csv`
+    a.download = `studio-inventory-${filter}-${toDateInputValue(new Date())}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -150,6 +155,7 @@ export function Loans() {
                     <Link className="link" to={`/inventory/${loan.itemId}`}>
                       {loan.itemName}
                     </Link>
+                    {loan.kitName && <p className="muted small">🧰 {loan.kitName}</p>}
                     {loan.returnNotes && <p className="muted small">“{loan.returnNotes}”</p>}
                   </td>
                   <td>{loan.personName}</td>

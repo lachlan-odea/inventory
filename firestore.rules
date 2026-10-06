@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Studio Stock security rules.
+// Studio Inventory security rules.
 //
 // The app signs every visitor in anonymously (see src/lib/firebase.ts), so
 // "request.auth != null" means "loaded the app from a client holding the
@@ -44,6 +44,18 @@ service cloud.firestore {
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 200;
+      allow delete: if signedIn();
+    }
+
+    match /kits/{kitId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200
+        && request.resource.data.components is list
+        && request.resource.data.components.size() <= 100;
+      // Kits own no stock and loans carry the kit name, so deleting is safe.
       allow delete: if signedIn();
     }
 

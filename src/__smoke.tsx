@@ -22,8 +22,13 @@ import { Loans } from './pages/Loans'
 import { People } from './pages/People'
 import { Setup } from './pages/Setup'
 import { ImportDialog } from './components/ImportDialog'
+import { KitDialog } from './components/KitDialog'
+import { KitCheckOutDialog } from './components/KitCheckOutDialog'
+import { KitCheckInDialog } from './components/KitCheckInDialog'
+import { groupKitCheckouts } from './lib/kits'
+import { Kits } from './pages/Kits'
 import { runLogicTests } from './__logic-tests'
-import type { Item, Loan, LoanView, Person } from './lib/types'
+import type { Item, Kit, Loan, LoanView, Person } from './lib/types'
 
 const daysFromNow = (n: number) => Timestamp.fromDate(new Date(Date.now() + n * 86400000))
 
@@ -142,6 +147,9 @@ const loans: Loan[] = [
     returnNotes: '',
     returnPhotoUrl: null,
     returnPhotoPath: null,
+    kitId: null,
+    kitName: null,
+    kitCheckoutId: null,
   },
   {
     id: 'l2',
@@ -160,6 +168,9 @@ const loans: Loan[] = [
     returnNotes: '',
     returnPhotoUrl: null,
     returnPhotoPath: null,
+    kitId: null,
+    kitName: null,
+    kitCheckoutId: null,
   },
   {
     id: 'l3',
@@ -178,6 +189,9 @@ const loans: Loan[] = [
     returnNotes: 'Scuff on the cage',
     returnPhotoUrl: 'https://example.com/photo.jpg',
     returnPhotoPath: 'items/l3/photo.jpg',
+    kitId: null,
+    kitName: null,
+    kitCheckoutId: null,
   },
   {
     id: 'l4',
@@ -196,6 +210,34 @@ const loans: Loan[] = [
     returnNotes: '',
     returnPhotoUrl: null,
     returnPhotoPath: null,
+    kitId: null,
+    kitName: null,
+    kitCheckoutId: null,
+  },
+]
+
+const kits: Kit[] = [
+  {
+    id: 'kit1',
+    name: 'Interview kit',
+    description: 'Two-camera sit-down',
+    components: [
+      { itemId: 'cam1', qty: 1 },
+      { itemId: 'cbl1', qty: 4 },
+    ],
+    archived: false,
+    createdAt: daysFromNow(-20),
+    updatedAt: null,
+  },
+  {
+    // Needs more cameras than are on the shelf, so it must show as blocked.
+    id: 'kit2',
+    name: 'Multicam kit',
+    description: '',
+    components: [{ itemId: 'cam1', qty: 2 }],
+    archived: false,
+    createdAt: daysFromNow(-10),
+    updatedAt: null,
   },
 ]
 
@@ -213,10 +255,12 @@ function buildStore(overrides: Partial<StoreValue> = {}): StoreValue {
     error: null,
     items,
     people,
+    kits,
     openLoans: open,
     history: views,
     itemsById: new Map(items.map((i) => [i.id, i])),
     peopleById: new Map(people.map((p) => [p.id, p])),
+    kitsById: new Map(kits.map((k) => [k.id, k])),
     openLoansByItem: byItem,
     openLoansByPerson: byPerson,
     ...overrides,
@@ -230,9 +274,27 @@ const empty = buildStore({
   history: [],
   itemsById: new Map(),
   peopleById: new Map(),
+  kits: [],
+  kitsById: new Map(),
   openLoansByItem: new Map(),
   openLoansByPerson: new Map(),
 })
+
+/** The Interview kit checked out to Grace — two loans sharing a checkout id. */
+const kitOutLoans: LoanView[] = ([
+  { ...loans[0]!, id: 'kl1', status: 'out', returnedQty: 0, dueAt: daysFromNow(3) },
+  { ...loans[1]!, id: 'kl2', status: 'out', qty: 4, returnedQty: 0, dueAt: daysFromNow(3) },
+] satisfies Loan[]).map((l) =>
+  toLoanView({
+    ...l,
+    personId: 'p2',
+    personName: 'Grace Hopper',
+    kitId: 'kit1',
+    kitName: 'Interview kit',
+    kitCheckoutId: 'co1',
+  }),
+)
+const kitOutStore = buildStore({ openLoans: kitOutLoans })
 
 interface Case {
   name: string
@@ -320,7 +382,7 @@ const cases: Case[] = [
     store: buildStore(),
     expect: ['Ada Lovelace', 'Producer', 'units out'],
   },
-  { name: 'Setup', route: '/', element: <Setup />, store: empty, expect: ['Studio Stock'] },
+  { name: 'Setup', route: '/', element: <Setup />, store: empty, expect: ['Studio Inventory'] },
 
   // Dialogs — the flows that actually move stock.
   {
@@ -328,14 +390,23 @@ const cases: Case[] = [
     route: '/',
     element: <CheckOutDialog onClose={noop} />,
     store: buildStore(),
-    expect: ['Check out', 'STUDIO 102 — Sony A6500', 'Ada Lovelace', 'Due back'],
+    expect: [
+      'Check out',
+      'Items in this booking',
+      'Nothing yet',
+      'Add items',
+      'STUDIO 102 — Sony A6500',
+      'Ada Lovelace',
+      'Due back',
+    ],
   },
   {
     name: 'CheckOutDialog (item not fit for service)',
     route: '/',
     element: <CheckOutDialog item={items[1]!} onClose={noop} />,
     store: buildStore(),
-    expect: ['is marked not fit for service'],
+    // The pre-selected item lands in the booking and drops out of the picker.
+    expect: ['is marked not fit for service', 'Remove ', 'from booking', 'Add items'],
   },
   {
     name: 'CheckOutDialog (no people on the list)',
@@ -393,6 +464,72 @@ const cases: Case[] = [
     element: <PersonDialog roles={['Producer']} onClose={noop} />,
     store: buildStore(),
     expect: ['Add person'],
+  },
+  {
+    name: 'Kits',
+    route: '/kits',
+    element: <Kits />,
+    store: buildStore(),
+    expect: ['Interview kit', 'Two-camera sit-down', 'Ready', 'Multicam kit', '1 item short', 'Only 1 available'],
+  },
+  {
+    name: 'Kits (empty)',
+    route: '/kits',
+    element: <Kits />,
+    store: empty,
+    expect: ['No kits yet', 'Build a kit'],
+  },
+  {
+    name: 'KitDialog (new)',
+    route: '/',
+    element: <KitDialog onClose={noop} />,
+    store: buildStore(),
+    // Archived items must not be offered for a new kit.
+    expect: ['New kit', 'Kit name', 'Nothing yet', 'STUDIO 102 — Sony A6500'],
+    reject: ['Retired tripod'],
+  },
+  {
+    name: 'KitDialog (edit)',
+    route: '/',
+    element: <KitDialog kit={kits[0]!} onClose={noop} />,
+    store: buildStore(),
+    expect: ['Edit kit', 'Interview kit', 'Sony A6500', 'XLR cable 5m'],
+  },
+  {
+    name: 'KitCheckOutDialog (ready)',
+    route: '/',
+    element: <KitCheckOutDialog kit={kits[0]!} onClose={noop} />,
+    store: buildStore(),
+    expect: ['Check out Interview kit', '2 items · 5 units', 'Ada Lovelace', 'not fit for service'],
+    reject: ["can't go out right now"],
+  },
+  {
+    name: 'KitCheckOutDialog (short)',
+    route: '/',
+    element: <KitCheckOutDialog kit={kits[1]!} onClose={noop} />,
+    store: buildStore(),
+    expect: ["This kit can't go out right now", 'Only 1 available'],
+  },
+  {
+    name: 'Kits (kit out with someone)',
+    route: '/kits',
+    element: <Kits />,
+    store: kitOutStore,
+    expect: ['Out with Grace Hopper', 'Whole kit out', 'Check in kit'],
+  },
+  {
+    name: 'KitCheckInDialog',
+    route: '/',
+    element: <KitCheckInDialog checkout={groupKitCheckouts(kitOutStore.openLoans)[0]!} onClose={noop} />,
+    store: kitOutStore,
+    expect: [
+      'Check in Interview kit',
+      'Out with Grace Hopper',
+      'Sony A6500',
+      'XLR cable 5m',
+      'Set every item to',
+      'Check in whole kit',
+    ],
   },
   {
     name: 'ImportDialog (items)',

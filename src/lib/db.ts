@@ -15,17 +15,25 @@ import {
   writeBatch,
   type DocumentData,
   type QueryDocumentSnapshot,
+  type Transaction,
   type WriteBatch,
 } from 'firebase/firestore'
 import { uploadImage } from './cloudinary'
 import { db } from './firebase'
 import { parseDueDate } from './format'
+import { normaliseComponents } from './kits'
 import type {
+  BookingCheckOutInput,
   CheckInInput,
-  CheckOutInput,
   Item,
+  ItemCondition,
+  Kit,
+  KitCheckInInput,
+  KitCheckOutInput,
+  KitComponent,
   Loan,
   NewItemInput,
+  NewKitInput,
   NewPersonInput,
   Person,
 } from './types'
@@ -33,6 +41,7 @@ import type {
 const itemsCol = collection(db, 'items')
 const peopleCol = collection(db, 'people')
 const loansCol = collection(db, 'loans')
+const kitsCol = collection(db, 'kits')
 
 /* ------------------------------------------------------------------ mapping */
 
@@ -98,6 +107,25 @@ function mapLoan(snap: QueryDocumentSnapshot<DocumentData>): Loan {
     returnNotes: d.returnNotes ?? '',
     returnPhotoUrl: d.returnPhotoUrl ?? null,
     returnPhotoPath: d.returnPhotoPath ?? null,
+    kitId: d.kitId ?? null,
+    kitName: d.kitName ?? null,
+    kitCheckoutId: d.kitCheckoutId ?? null,
+  }
+}
+
+function mapKit(snap: QueryDocumentSnapshot<DocumentData>): Kit {
+  const d = snap.data()
+  const raw: unknown[] = Array.isArray(d.components) ? d.components : []
+  return {
+    id: snap.id,
+    name: d.name ?? '',
+    description: d.description ?? '',
+    components: raw
+      .map((c) => c as Partial<KitComponent>)
+      .filter((c): c is KitComponent => typeof c.itemId === 'string' && typeof c.qty === 'number'),
+    archived: d.archived ?? false,
+    createdAt: d.createdAt ?? null,
+    updatedAt: d.updatedAt ?? null,
   }
 }
 
@@ -118,6 +146,14 @@ export function watchPeople(onData: Sink<Person>, onError: ErrorSink) {
   return onSnapshot(
     query(peopleCol, orderBy('name')),
     (snap) => onData(snap.docs.map(mapPerson)),
+    onError,
+  )
+}
+
+export function watchKits(onData: Sink<Kit>, onError: ErrorSink) {
+  return onSnapshot(
+    query(kitsCol, orderBy('name')),
+    (snap) => onData(snap.docs.map(mapKit)),
     onError,
   )
 }
@@ -244,56 +280,185 @@ export async function deletePerson(personId: string): Promise<void> {
   await deleteDoc(doc(peopleCol, personId))
 }
 
+/* ---------------------------------------------------------------------- kits */
+
+export async function createKit(input: NewKitInput): Promise<string> {
+  const docRef = await addDoc(kitsCol, {
+    ...input,
+    components: normaliseComponents(input.components),
+    archived: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+  return docRef.id
+}
+
+export async function updateKit(kitId: string, input: NewKitInput): Promise<void> {
+  await updateDoc(doc(kitsCol, kitId), {
+    ...input,
+    components: normaliseComponents(input.components),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function setKitArchived(kitId: string, archived: boolean): Promise<void> {
+  await updateDoc(doc(kitsCol, kitId), { archived, updatedAt: serverTimestamp() })
+}
+
+/** Safe at any time: kits own no stock, and loans carry the kit name with them. */
+export async function deleteKit(kitId: string): Promise<void> {
+  await deleteDoc(doc(kitsCol, kitId))
+}
+
 /* --------------------------------------------------------------- check in/out */
 
+/** Each line costs two writes; Firestore caps a transaction at 500. */
+export const MAX_BOOKING_LINES = 200
+
+interface LoanStamp {
+  personId: string
+  personName: string
+  due: Date | null
+  notes: string
+  kitId: string | null
+  kitName: string | null
+  kitCheckoutId: string | null
+}
+
 /**
- * Checks units out to a person. The availability check and the decrement happen
- * in one transaction, so two people scanning the last unit at the same time
- * can't both win.
+ * Reads every item, checks each line can go out, then decrements stock and
+ * writes one loan per line. All-or-nothing: if any line is short, nothing is
+ * written and the error lists every shortfall so they can be fixed in one pass.
+ * Callers must finish their own reads first — Firestore needs reads before writes.
  */
-export async function checkOut(input: CheckOutInput): Promise<string> {
-  const itemRef = doc(itemsCol, input.itemId)
-  const personRef = doc(peopleCol, input.personId)
-  const loanRef = doc(loansCol)
-  const qty = Math.max(1, Math.floor(input.qty))
-  const due = parseDueDate(input.dueDate)
+async function stageCheckout(
+  tx: Transaction,
+  lines: KitComponent[],
+  stamp: LoanStamp,
+  failurePrefix: string,
+): Promise<void> {
+  const itemRefs = lines.map((l) => doc(itemsCol, l.itemId))
+  const itemSnaps = await Promise.all(itemRefs.map((ref) => tx.get(ref)))
 
-  await runTransaction(db, async (tx) => {
-    const [itemSnap, personSnap] = await Promise.all([tx.get(itemRef), tx.get(personRef)])
-    if (!itemSnap.exists()) throw new Error('That item no longer exists.')
-    if (!personSnap.exists()) throw new Error('That person is no longer in the list.')
-
-    const item = itemSnap.data()
+  const problems: string[] = []
+  lines.forEach((l, i) => {
+    const snap = itemSnaps[i]!
+    if (!snap.exists()) {
+      problems.push('an item has been deleted from the inventory')
+      return
+    }
+    const item = snap.data()
     const available: number = item.availableQty ?? 0
-    if (available < qty) {
-      throw new Error(
+    if (item.archived) problems.push(`"${item.name}" is archived`)
+    else if (available < l.qty) {
+      problems.push(
         available === 0
-          ? `"${item.name}" is fully checked out.`
-          : `Only ${available} of "${item.name}" ${available === 1 ? 'is' : 'are'} available.`,
+          ? `"${item.name}" is fully checked out`
+          : `only ${available} of ${l.qty} "${item.name}" available`,
       )
     }
+  })
+  if (problems.length) throw new Error(`${failurePrefix}: ${problems.join('; ')}.`)
 
-    tx.update(itemRef, { availableQty: available - qty, updatedAt: serverTimestamp() })
-    tx.set(loanRef, {
-      itemId: input.itemId,
+  lines.forEach((l, i) => {
+    const item = itemSnaps[i]!.data()!
+    tx.update(itemRefs[i]!, {
+      availableQty: (item.availableQty ?? 0) - l.qty,
+      updatedAt: serverTimestamp(),
+    })
+    tx.set(doc(loansCol), {
+      itemId: l.itemId,
       itemName: item.name ?? '',
-      personId: input.personId,
-      personName: personSnap.data().name ?? '',
-      qty,
+      personId: stamp.personId,
+      personName: stamp.personName,
+      qty: l.qty,
       returnedQty: 0,
       status: 'out',
       checkedOutAt: serverTimestamp(),
-      dueAt: due ? Timestamp.fromDate(due) : null,
+      dueAt: stamp.due ? Timestamp.fromDate(stamp.due) : null,
       returnedAt: null,
-      checkoutNotes: input.notes,
+      checkoutNotes: stamp.notes,
       returnCondition: null,
       returnNotes: '',
       returnPhotoUrl: null,
       returnPhotoPath: null,
+      kitId: stamp.kitId,
+      kitName: stamp.kitName,
+      kitCheckoutId: stamp.kitCheckoutId,
     })
   })
+}
 
-  return loanRef.id
+/**
+ * Checks out one or more items to a person in a single booking. Each item gets
+ * its own loan, so check-in and partial returns work per item as before.
+ */
+export async function checkOutBooking(input: BookingCheckOutInput): Promise<number> {
+  const lines = normaliseComponents(input.lines)
+  if (lines.length === 0) throw new Error('Add at least one item to the booking.')
+  if (lines.length > MAX_BOOKING_LINES) {
+    throw new Error(`A booking can hold up to ${MAX_BOOKING_LINES} items — split it in two.`)
+  }
+  const personRef = doc(peopleCol, input.personId)
+
+  await runTransaction(db, async (tx) => {
+    const personSnap = await tx.get(personRef)
+    if (!personSnap.exists()) throw new Error('That person is no longer in the list.')
+    await stageCheckout(
+      tx,
+      lines,
+      {
+        personId: input.personId,
+        personName: personSnap.data().name ?? '',
+        due: parseDueDate(input.dueDate),
+        notes: input.notes,
+        kitId: null,
+        kitName: null,
+        kitCheckoutId: null,
+      },
+      "Can't check out",
+    )
+  })
+
+  return lines.length
+}
+
+/**
+ * Checks out every item in a kit at once, whole or not at all. Each loan is
+ * tagged with the kit so the Kits page knows it's out.
+ */
+export async function checkOutKit(input: KitCheckOutInput): Promise<number> {
+  const kitRef = doc(kitsCol, input.kitId)
+  const personRef = doc(peopleCol, input.personId)
+  let loanCount = 0
+
+  await runTransaction(db, async (tx) => {
+    const [kitSnap, personSnap] = await Promise.all([tx.get(kitRef), tx.get(personRef)])
+    if (!kitSnap.exists()) throw new Error('That kit no longer exists.')
+    if (!personSnap.exists()) throw new Error('That person is no longer in the list.')
+
+    const kit = kitSnap.data()
+    const components = normaliseComponents(Array.isArray(kit.components) ? kit.components : [])
+    if (components.length === 0) throw new Error(`"${kit.name}" has no items in it yet.`)
+
+    await stageCheckout(
+      tx,
+      components,
+      {
+        personId: input.personId,
+        personName: personSnap.data().name ?? '',
+        due: parseDueDate(input.dueDate),
+        notes: input.notes,
+        kitId: input.kitId,
+        kitName: kit.name ?? '',
+        kitCheckoutId: doc(loansCol).id,
+      },
+      `"${kit.name}" can't go out`,
+    )
+    loanCount = components.length
+  })
+
+  return loanCount
 }
 
 /**
@@ -352,6 +517,79 @@ export async function checkIn(input: CheckInInput): Promise<void> {
       })
     }
   })
+}
+
+/**
+ * Checks a kit back in in one go: every listed loan is returned in full, in a
+ * single transaction, so the shelf counts never show half a kit back. Loans
+ * left off the list stay out and can be returned later, individually or as a
+ * kit.
+ */
+export async function checkInKit(input: KitCheckInInput): Promise<number> {
+  if (input.returns.length === 0) throw new Error('Pick at least one item that has come back.')
+
+  // Upload outside the transaction, for the same reason as checkIn().
+  let photoUrl: string | null = null
+  let photoPath: string | null = null
+  if (input.photo) {
+    const uploaded = await uploadImage(input.photo, `returns/${input.kitCheckoutId}`)
+    photoUrl = uploaded.url
+    photoPath = uploaded.publicId
+  }
+
+  await runTransaction(db, async (tx) => {
+    // Firestore transactions need every read done before the first write.
+    const loanRefs = input.returns.map((r) => doc(loansCol, r.loanId))
+    const loanSnaps = await Promise.all(loanRefs.map((ref) => tx.get(ref)))
+
+    const loans = loanSnaps.map((snap) => {
+      if (!snap.exists()) throw new Error('One of the loans in this kit no longer exists.')
+      const loan = snap.data()
+      if (loan.status === 'returned') {
+        throw new Error(`"${loan.itemName}" has already been checked in — refresh and try again.`)
+      }
+      return loan
+    })
+
+    const itemIds = [...new Set(loans.map((l) => l.itemId as string))]
+    const itemSnaps = new Map(
+      await Promise.all(
+        itemIds.map(async (id) => [id, await tx.get(doc(itemsCol, id))] as const),
+      ),
+    )
+
+    // Units going back on each item's shelf, and the condition to record.
+    const restock = new Map<string, { qty: number; condition: ItemCondition }>()
+
+    input.returns.forEach((r, i) => {
+      const loan = loans[i]!
+      const outstanding: number = (loan.qty ?? 0) - (loan.returnedQty ?? 0)
+      tx.update(loanRefs[i]!, {
+        returnedQty: loan.qty ?? 0,
+        status: 'returned',
+        returnedAt: serverTimestamp(),
+        returnCondition: r.condition,
+        returnNotes: input.notes,
+        ...(photoUrl ? { returnPhotoUrl: photoUrl, returnPhotoPath: photoPath } : {}),
+      })
+      const prev = restock.get(loan.itemId)
+      restock.set(loan.itemId, { qty: (prev?.qty ?? 0) + outstanding, condition: r.condition })
+    })
+
+    for (const [itemId, { qty, condition }] of restock) {
+      const snap = itemSnaps.get(itemId)
+      // As with checkIn(): a deleted item can't block closing its loan.
+      if (!snap?.exists()) continue
+      const item = snap.data()
+      tx.update(snap.ref, {
+        availableQty: Math.min(item.totalQty ?? 0, (item.availableQty ?? 0) + qty),
+        condition,
+        updatedAt: serverTimestamp(),
+      })
+    }
+  })
+
+  return input.returns.length
 }
 
 /** Pushes an open loan's due date out. */

@@ -1,4 +1,42 @@
-import type { Item, Kit, KitComponent } from './types'
+import type { Item, Kit, KitComponent, LoanView } from './types'
+
+/** Everything still out from one kit checkout — one person, one handover. */
+export interface KitCheckout {
+  kitCheckoutId: string
+  kitId: string
+  kitName: string
+  personName: string
+  /** Open loans only, one per item still (partly) out. */
+  loans: LoanView[]
+  isOverdue: boolean
+}
+
+/**
+ * Groups open loans back into the kit checkouts that created them. Items
+ * already returned individually simply drop out of their group; a group with
+ * nothing left out disappears.
+ */
+export function groupKitCheckouts(openLoans: LoanView[]): KitCheckout[] {
+  const groups = new Map<string, KitCheckout>()
+  for (const loan of openLoans) {
+    if (!loan.kitCheckoutId || !loan.kitId || loan.status !== 'out') continue
+    let group = groups.get(loan.kitCheckoutId)
+    if (!group) {
+      group = {
+        kitCheckoutId: loan.kitCheckoutId,
+        kitId: loan.kitId,
+        kitName: loan.kitName ?? '',
+        personName: loan.personName,
+        loans: [],
+        isOverdue: false,
+      }
+      groups.set(loan.kitCheckoutId, group)
+    }
+    group.loans.push(loan)
+    group.isOverdue ||= loan.isOverdue
+  }
+  return [...groups.values()]
+}
 
 /**
  * Tidies a kit's item list before it's saved: drops blank rows, floors

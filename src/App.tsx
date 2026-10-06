@@ -3,6 +3,7 @@ import { isConfigured } from './lib/firebase'
 import { useStore } from './lib/store'
 import { Dashboard } from './pages/Dashboard'
 import { Inventory } from './pages/Inventory'
+import { Kits } from './pages/Kits'
 import { ItemDetail } from './pages/ItemDetail'
 import { People } from './pages/People'
 import { Loans } from './pages/Loans'
@@ -11,6 +12,7 @@ import { Setup } from './pages/Setup'
 const NAV = [
   { to: '/', label: 'Today', icon: '🏠', end: true },
   { to: '/inventory', label: 'Inventory', icon: '📦', end: false },
+  { to: '/kits', label: 'Kits', icon: '🧰', end: false },
   { to: '/loans', label: 'Loans', icon: '🔄', end: false },
   { to: '/people', label: 'People', icon: '👥', end: false },
 ]
@@ -29,7 +31,7 @@ export default function App() {
           <span className="topbar__logo" aria-hidden="true">
             📦
           </span>
-          <span>Studio Stock</span>
+          <span>Studio Inventory</span>
         </div>
         <nav className="topbar__nav">
           {NAV.map((tab) => (
@@ -63,6 +65,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/inventory/:itemId" element={<ItemDetail />} />
+            <Route path="/kits" element={<Kits />} />
             <Route path="/loans" element={<Loans />} />
             <Route path="/people" element={<People />} />
             <Route path="*" element={<Navigate to="/" replace />} />

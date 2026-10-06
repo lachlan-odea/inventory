@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react'
 import { Modal } from './Modal'
 import { Field, ItemThumb } from './ui'
 import { useStore, describeFirebaseError } from '../lib/store'
-import { checkOut } from '../lib/db'
+import { checkOutBooking, MAX_BOOKING_LINES } from '../lib/db'
 import { useToast } from './Toast'
-import { toDateInputValue } from '../lib/format'
-import type { Item } from '../lib/types'
+import { plural, toDateInputValue } from '../lib/format'
+import type { Item, KitComponent } from '../lib/types'
 
 interface Props {
   /** Pre-selected item, when opened from an item row. */
@@ -17,43 +17,84 @@ interface Props {
 const DEFAULT_LOAN_DAYS = 7
 
 export function CheckOutDialog({ item, onClose }: Props) {
-  const { items, people } = useStore()
+  const { items, people, itemsById } = useStore()
   const toast = useToast()
 
-  const [itemId, setItemId] = useState(item?.id ?? '')
+  const [lines, setLines] = useState<KitComponent[]>(() =>
+    item ? [{ itemId: item.id, qty: 1 }] : [],
+  )
   const [personId, setPersonId] = useState('')
-  const [qty, setQty] = useState(1)
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date()
     d.setDate(d.getDate() + DEFAULT_LOAN_DAYS)
     return toDateInputValue(d)
   })
   const [notes, setNotes] = useState('')
+  const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const availableItems = useMemo(
-    () => items.filter((i) => !i.archived && (i.availableQty > 0 || i.id === itemId)),
-    [items, itemId],
-  )
   const activePeople = useMemo(() => people.filter((p) => !p.archived), [people])
-  const selected = items.find((i) => i.id === itemId) ?? null
-  const maxQty = selected?.availableQty ?? 0
+  const inBooking = useMemo(() => new Set(lines.map((l) => l.itemId)), [lines])
+  const anyAvailable = useMemo(() => items.some((i) => !i.archived && i.availableQty > 0), [items])
+
+  const candidates = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return items
+      .filter((i) => !i.archived && i.availableQty > 0 && !inBooking.has(i.id))
+      .filter(
+        (i) =>
+          !q ||
+          [i.idNumber, i.name, i.category, i.modelNumber, i.serialNumber]
+            .join(' ')
+            .toLowerCase()
+            .includes(q),
+      )
+      .slice(0, 30)
+  }, [items, inBooking, search])
+
+  const rows = lines.map((l) => {
+    const it = itemsById.get(l.itemId) ?? null
+    const available = it?.availableQty ?? 0
+    let problem: string | null = null
+    if (!it) problem = 'No longer in the inventory'
+    else if (it.archived) problem = 'Archived'
+    else if (available === 0) problem = 'All out'
+    else if (!(l.qty >= 1)) problem = 'Enter a quantity'
+    else if (l.qty > available) problem = `Only ${available} available`
+    return { ...l, item: it, available, problem }
+  })
+  const blocked = rows.filter((r) => r.problem)
+  const notFit = rows.filter((r) => r.item?.fitForService === false)
+  const totalUnits = rows.reduce((sum, r) => sum + (r.qty >= 1 ? r.qty : 0), 0)
+
+  const add = (itemId: string) => {
+    setLines((ls) => [...ls, { itemId, qty: 1 }])
+    setSearch('')
+  }
+  const remove = (itemId: string) => setLines((ls) => ls.filter((l) => l.itemId !== itemId))
+  const setQty = (itemId: string, qty: number) =>
+    setLines((ls) => ls.map((l) => (l.itemId === itemId ? { ...l, qty } : l)))
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
 
-    if (!itemId) return setError('Pick an item.')
+    if (lines.length === 0) return setError('Add at least one item.')
     if (!personId) return setError('Pick who is taking it.')
-    if (qty < 1) return setError('Quantity must be at least 1.')
-    if (qty > maxQty) return setError(`Only ${maxQty} available.`)
+    if (blocked.length) return setError('Fix the highlighted items before checking out.')
 
     setBusy(true)
     try {
-      await checkOut({ itemId, personId, qty, dueDate, notes })
+      const count = await checkOutBooking({
+        lines: lines.map((l) => ({ itemId: l.itemId, qty: Math.floor(l.qty) })),
+        personId,
+        dueDate,
+        notes,
+      })
       const personName = activePeople.find((p) => p.id === personId)?.name ?? 'them'
-      toast.success(`${selected?.name} checked out to ${personName}.`)
+      const what = count === 1 ? (rows[0]?.item?.name ?? '1 item') : plural(count, 'item')
+      toast.success(`${what} checked out to ${personName}.`)
       onClose()
     } catch (err) {
       setError(describeFirebaseError(err))
@@ -63,13 +104,15 @@ export function CheckOutDialog({ item, onClose }: Props) {
   }
 
   const noPeople = activePeople.length === 0
-  const noItems = availableItems.length === 0
+  const nothingToBook = !anyAvailable && lines.length === 0
+  const full = lines.length >= MAX_BOOKING_LINES
 
   return (
     <Modal
       title="Check out"
-      subtitle="Record who is taking gear and when it's due back."
+      subtitle="Record who is taking gear and when it's due back. Add as many items as are going out together."
       onClose={onClose}
+      wide
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
@@ -79,9 +122,13 @@ export function CheckOutDialog({ item, onClose }: Props) {
             type="submit"
             form="checkout-form"
             className="btn btn--primary"
-            disabled={busy || noPeople || noItems}
+            disabled={busy || noPeople || lines.length === 0}
           >
-            {busy ? 'Checking out…' : 'Check out'}
+            {busy
+              ? 'Checking out…'
+              : lines.length > 1
+                ? `Check out ${plural(lines.length, 'item')}`
+                : 'Check out'}
           </button>
         </>
       }
@@ -91,57 +138,11 @@ export function CheckOutDialog({ item, onClose }: Props) {
           No one is on the borrower list yet — add people on the People tab first.
         </p>
       )}
-      {noItems && !noPeople && (
+      {nothingToBook && !noPeople && (
         <p className="form-error">Nothing is available to check out right now.</p>
       )}
 
       <form id="checkout-form" onSubmit={submit} className="form">
-        <Field label="Item" required>
-          <select
-            value={itemId}
-            onChange={(e) => {
-              setItemId(e.target.value)
-              setQty(1)
-            }}
-            required
-          >
-            <option value="">Select an item…</option>
-            {availableItems.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.idNumber ? `${i.idNumber} — ` : ''}
-                {i.name}
-                {i.category ? ` · ${i.category}` : ''} ({i.availableQty} available)
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        {selected && (
-          <>
-            <div className="picked-item">
-              <ItemThumb item={selected} size={52} />
-              <div>
-                <strong>{selected.name}</strong>
-                <p className="muted">
-                  {[selected.idNumber, selected.location].filter(Boolean).join(' · ')}
-                  {selected.idNumber || selected.location ? ' · ' : ''}
-                  {selected.availableQty} of {selected.totalQty} on the shelf
-                </p>
-                {selected.accessories && (
-                  <p className="muted small">Goes out with: {selected.accessories}</p>
-                )}
-              </div>
-            </div>
-            {selected.fitForService === false && (
-              <p className="callout callout--warn">
-                <strong>{selected.name} is marked not fit for service.</strong> Check with the
-                studio before it leaves — you can still record the loan if it's going out for
-                repair.
-              </p>
-            )}
-          </>
-        )}
-
         <Field label="Borrower" required>
           <select value={personId} onChange={(e) => setPersonId(e.target.value)} required>
             <option value="">Select a person…</option>
@@ -154,23 +155,130 @@ export function CheckOutDialog({ item, onClose }: Props) {
           </select>
         </Field>
 
-        <div className="form-row">
-          <Field label="Quantity" hint={selected ? `${maxQty} available` : undefined} required>
+        <div className="field">
+          <span className="field__label">
+            Items in this booking
+            {lines.length > 0 && (
+              <span className="muted">
+                {' '}
+                · {plural(lines.length, 'item')}, {plural(totalUnits, 'unit')}
+              </span>
+            )}
+          </span>
+          {lines.length === 0 ? (
+            <p className="muted small">Nothing yet — search below and add each item going out.</p>
+          ) : (
+            <ul className="kit-lines">
+              {rows.map((r) => (
+                <li key={r.itemId} className={r.problem ? 'is-blocked' : undefined}>
+                  {r.item ? (
+                    <ItemThumb item={r.item} size={36} />
+                  ) : (
+                    <span className="thumb thumb--empty">📦</span>
+                  )}
+                  <div className="kit-lines__main">
+                    <strong>{r.item?.name ?? 'Deleted item'}</strong>
+                    <p className="muted small">
+                      {r.item
+                        ? [r.item.idNumber, r.item.location, `${r.available} available`]
+                            .filter(Boolean)
+                            .join(' · ')
+                        : 'Remove this line'}
+                    </p>
+                    {r.item?.accessories && (
+                      <p className="muted small">Goes out with: {r.item.accessories}</p>
+                    )}
+                  </div>
+                  {r.problem && <span className="badge badge--out">{r.problem}</span>}
+                  {r.available > 1 || r.qty > 1 ? (
+                    <input
+                      type="number"
+                      className="kit-lines__qty"
+                      min={1}
+                      max={Math.max(1, r.available)}
+                      value={Number.isNaN(r.qty) ? '' : r.qty}
+                      onChange={(e) => setQty(r.itemId, e.target.valueAsNumber)}
+                      aria-label={`Quantity of ${r.item?.name ?? 'item'}`}
+                    />
+                  ) : (
+                    <span className="kit-lines__count">×1</span>
+                  )}
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    onClick={() => remove(r.itemId)}
+                    aria-label={`Remove ${r.item?.name ?? 'item'} from booking`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {notFit.length > 0 && (
+          <p className="callout callout--warn">
+            <strong>
+              {notFit.map((r) => r.item!.name).join(', ')} {notFit.length === 1 ? 'is' : 'are'}{' '}
+              marked not fit for service.
+            </strong>{' '}
+            Check with the studio before it leaves — you can still record the loan if it's going
+            out for repair.
+          </p>
+        )}
+
+        {!full && anyAvailable && (
+          <div className="field">
+            <span className="field__label">Add items</span>
             <input
-              type="number"
-              min={1}
-              max={Math.max(1, maxQty)}
-              value={qty}
-              onChange={(e) => setQty(Number(e.target.value))}
-              required
+              type="search"
+              placeholder="Search ID, item, category, serial…"
+              value={search}
+              autoFocus={!item}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter adds the top match instead of submitting, so typing an
+                // asset ID then Enter is a fast way to build the list.
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                if (search.trim() && candidates[0]) add(candidates[0].id)
+              }}
+              aria-label="Search items to add"
             />
-          </Field>
+            {candidates.length === 0 ? (
+              <p className="muted small">
+                {search.trim() ? 'No available items match.' : 'Everything available is already added.'}
+              </p>
+            ) : (
+              <ul className="kit-picker">
+                {candidates.map((i) => (
+                  <li key={i.id}>
+                    <button type="button" onClick={() => add(i.id)}>
+                      <span>
+                        {i.idNumber ? `${i.idNumber} — ` : ''}
+                        {i.name}
+                        {i.category ? <span className="muted"> · {i.category}</span> : null}
+                        <span className="muted"> ({i.availableQty} available)</span>
+                      </span>
+                      <span className="kit-picker__add" aria-hidden="true">
+                        + Add
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <div className="form-row">
           <Field label="Due back" hint="Leave blank for an open-ended loan">
             <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </Field>
         </div>
 
-        <Field label="Notes" hint="Anything worth recording — shoot name, accessories included">
+        <Field label="Notes" hint="Shoot name, anything worth recording — saved on every item">
           <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
 

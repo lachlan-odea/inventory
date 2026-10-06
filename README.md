@@ -1,4 +1,4 @@
-# Studio Stock
+# Studio Inventory
 
 Inventory and borrowing tracker for the studio. Track what gear you own, who has
 it, when it's due back, and what condition it came back in.
@@ -7,6 +7,9 @@ it, when it's due back, and what condition it came back in.
   one-of-a-kind gear
 - **Check out / check in** against a managed list of borrowers, with partial
   returns (6 cables out, 4 back now, 2 later)
+- **Kits** — bundle gear that goes out together ("Interview kit") and check the
+  whole lot out in one step (complete or not at all), then check it back in in one
+  step from the Kits page — untick anything that is not back yet
 - **Due dates** with overdue flagging on the dashboard and a badge in the nav
 - **Photos** per item, plus a condition rating and notes recorded on every return
 - **Full loan history** per item and per person, exportable to CSV
@@ -98,12 +101,13 @@ can use the app — see the security note below before sharing it widely.
 
 ## How the data is modelled
 
-Three Firestore collections:
+Four Firestore collections:
 
 | Collection | What it holds |
 | --- | --- |
 | `items` | Gear. Carries `totalQty` (owned) and `availableQty` (on the shelf). |
 | `people` | The borrower list. Checkout picks from these. |
+| `kits` | Named bundles of items + quantities. Own no stock themselves. |
 | `loans` | One document per check-out event. Never deleted — this is the audit trail. |
 
 **Availability is derived but stored.** `availableQty` is decremented at checkout
@@ -115,6 +119,12 @@ fan-out query.
 **Partial returns** work by tracking `returnedQty` against `qty` on the loan. The
 loan stays `out` until they're equal, then flips to `returned` and stamps
 `returnedAt`.
+
+**Kit checkout is all-or-nothing.** One transaction reads every item in the kit
+and only writes if all of them are available, then creates one loan per item
+tagged with the kit and a shared checkout id. "Check in kit" on the Kits page
+returns every ticked item in one transaction; items can still be returned one
+at a time from Loans, and partial returns still work.
 
 **Item and person names are denormalised onto loans** so old history still reads
 correctly after gear is renamed or someone leaves.
@@ -153,12 +163,13 @@ src/
   lib/
     firebase.ts   Firebase init, emulator wiring, anonymous sign-in
     cloudinary.ts Unsigned photo uploads
-    types.ts      Item / Person / Loan shapes
+    types.ts      Item / Person / Kit / Loan shapes
+    kits.ts       Kit availability and tidy-up (pure, unit-tested)
     db.ts         All Firestore reads and writes, incl. the check-in/out transactions
     store.tsx     Live subscriptions -> React context; derived indexes
     format.ts     Dates, due-date maths, loan view models
-  components/     Dialogs (check out, check in, item, person) and shared UI
-  pages/          Dashboard, Inventory, ItemDetail, Loans, People, Setup
+  components/     Dialogs (check out, check in, item, person, kit) and shared UI
+  pages/          Dashboard, Inventory, ItemDetail, Kits, Loans, People, Setup
 firestore.rules   Database access rules
 firebase.json     Hosting + emulator config
 ```
@@ -179,4 +190,3 @@ firebase.json     Hosting + emulator config
 
 - QR labels per item plus phone-camera scanning for one-tap check-in/out
 - Email or Slack nudges for overdue loans (Cloud Function on a schedule)
-- Kit bundles — check out "Interview kit" and have it move six items at once

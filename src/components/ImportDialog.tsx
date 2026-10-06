@@ -119,7 +119,7 @@ export function ImportDialog({ kind, onClose }: Props) {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `studio-stock-${nounPlural}-template.csv`
+    a.download = `studio-inventory-${nounPlural}-template.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -315,7 +315,7 @@ export function ImportDialog({ kind, onClose }: Props) {
           <table className="table map-table">
             <thead>
               <tr>
-                <th>Studio Stock field</th>
+                <th>Studio Inventory field</th>
                 <th>Spreadsheet column</th>
                 <th>First row</th>
               </tr>
