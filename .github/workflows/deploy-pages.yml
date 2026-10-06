@@ -21,6 +21,10 @@ jobs:
     env:
       # Served from https://<owner>.github.io/<repo>/
       VITE_BASE_PATH: /${{ github.event.repository.name }}/
+      # Smoke tests assert on dates as the studio sees them (en-AU, Sydney).
+      LANG: en_AU.UTF-8
+      LC_ALL: en_AU.UTF-8
+      TZ: Australia/Sydney
       # Firebase web config is not secret (it ships in the bundle), so it lives
       # in repository variables: Settings -> Secrets and variables -> Actions.
       VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
