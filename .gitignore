@@ -1,0 +1,29 @@
+node_modules/
+dist/
+dist-ssr/
+.smoke/
+*.local
+
+# Local env — holds your Firebase web config
+.env
+.env.*
+!.env.example
+
+# Firebase CLI
+.firebase/
+.firebaserc
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+storage-debug.log
+*-debug.log
+
+# Emulator data snapshots
+emulator-data/
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,62 @@
+rules_version = '2';
+
+// Studio Stock security rules.
+//
+// The app signs every visitor in anonymously (see src/lib/firebase.ts), so
+// "request.auth != null" means "loaded the app from a client holding the
+// Firebase web config". That is deliberately a low bar: it keeps casual
+// internet traffic and unauthenticated scripts out, but it is NOT a substitute
+// for real access control.
+//
+// If this ever holds data you would not hand to anyone who can reach the URL,
+// switch to Google sign-in and gate on an allowlist — the commented
+// isStaff() helper below is the drop-in for that.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // function isStaff() {
+    //   return signedIn() && exists(/databases/$(database)/documents/staff/$(request.auth.token.email));
+    // }
+
+    function positiveInt(v) {
+      return v is int && v >= 0;
+    }
+
+    match /items/{itemId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200
+        && positiveInt(request.resource.data.totalQty)
+        && positiveInt(request.resource.data.availableQty)
+        && request.resource.data.availableQty <= request.resource.data.totalQty;
+      allow delete: if signedIn();
+    }
+
+    match /people/{personId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200;
+      allow delete: if signedIn();
+    }
+
+    match /loans/{loanId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.itemId is string
+        && request.resource.data.personId is string
+        && request.resource.data.qty is int
+        && request.resource.data.qty > 0;
+      allow update: if signedIn();
+      // Loans are the audit trail — they are never deleted, only returned.
+      allow delete: if false;
+    }
+  }
+}
