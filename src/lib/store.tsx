@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { ensureSignedIn, isConfigured } from './firebase'
+import { isConfigured } from './firebase'
 import { watchItems, watchKits, watchLoanHistory, watchOpenLoans, watchPeople } from './db'
 import { toLoanView } from './format'
 import type { Item, Kit, Loan, LoanView, Person } from './types'
@@ -48,42 +48,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   })
   const [error, setError] = useState<string | null>(null)
 
+  // Mounted only once the user is signed in and on the allowlist (see
+  // AuthGate in App.tsx), so the subscriptions can start straight away.
   useEffect(() => {
     if (!isConfigured) return
     let cancelled = false
-    const unsubs: Array<() => void> = []
 
     const fail = (err: Error) => {
       if (!cancelled) setError(describeFirebaseError(err))
     }
 
-    ensureSignedIn()
-      .then(() => {
-        if (cancelled) return
-        unsubs.push(
-          watchItems((rows) => {
-            setItems(rows)
-            setLoaded((s) => ({ ...s, items: true }))
-          }, fail),
-          watchPeople((rows) => {
-            setPeople(rows)
-            setLoaded((s) => ({ ...s, people: true }))
-          }, fail),
-          watchKits((rows) => {
-            setKits(rows)
-            setLoaded((s) => ({ ...s, kits: true }))
-          }, fail),
-          watchOpenLoans((rows) => {
-            setOpenLoansRaw(rows)
-            setLoaded((s) => ({ ...s, loans: true }))
-          }, fail),
-          watchLoanHistory((rows) => {
-            setHistoryRaw(rows)
-            setLoaded((s) => ({ ...s, history: true }))
-          }, fail),
-        )
-      })
-      .catch((err: Error) => fail(err))
+    const unsubs = [
+      watchItems((rows) => {
+        setItems(rows)
+        setLoaded((s) => ({ ...s, items: true }))
+      }, fail),
+      watchPeople((rows) => {
+        setPeople(rows)
+        setLoaded((s) => ({ ...s, people: true }))
+      }, fail),
+      watchKits((rows) => {
+        setKits(rows)
+        setLoaded((s) => ({ ...s, kits: true }))
+      }, fail),
+      watchOpenLoans((rows) => {
+        setOpenLoansRaw(rows)
+        setLoaded((s) => ({ ...s, loans: true }))
+      }, fail),
+      watchLoanHistory((rows) => {
+        setHistoryRaw(rows)
+        setLoaded((s) => ({ ...s, history: true }))
+      }, fail),
+    ]
 
     return () => {
       cancelled = true
@@ -153,7 +149,7 @@ export function describeFirebaseError(err: unknown): string {
     return 'Cannot reach Firebase. Check your connection — changes you make will sync when it comes back.'
   }
   if (code.includes('auth/admin-restricted-operation') || code.includes('auth/operation-not-allowed')) {
-    return 'Anonymous sign-in is not enabled. Firebase console → Authentication → Sign-in method → enable Anonymous.'
+    return 'Email sign-in is not enabled. Firebase console → Authentication → Sign-in method → enable Email/Password.'
   }
   if (code.includes('failed-precondition') && message.includes('index')) {
     return `Firestore needs an index for this query. ${message}`

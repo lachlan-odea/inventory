@@ -29,6 +29,11 @@ import { groupKitCheckouts } from './lib/kits'
 import { Kits } from './pages/Kits'
 import { runLogicTests } from './__logic-tests'
 import type { Item, Kit, Loan, LoanView, Person } from './lib/types'
+import type { User } from 'firebase/auth'
+import { AuthContext, type AuthState } from './lib/auth'
+import { Access } from './pages/Access'
+import { NoAccess, SignIn, VerifyEmail } from './pages/SignIn'
+import App from './App'
 
 const daysFromNow = (n: number) => Timestamp.fromDate(new Date(Date.now() + n * 86400000))
 
@@ -296,6 +301,19 @@ const kitOutLoans: LoanView[] = ([
 )
 const kitOutStore = buildStore({ openLoans: kitOutLoans })
 
+/** Signed-in staff, for screens that read useAuth(). */
+const adminState: Extract<AuthState, { status: 'staff' }> = {
+  status: 'staff',
+  user: { email: 'admin@example.com' } as User,
+  role: 'admin',
+}
+
+function withAuth(element: ReactElement, state: AuthState): ReactElement {
+  return (
+    <AuthContext.Provider value={{ state, refresh: async () => {} }}>{element}</AuthContext.Provider>
+  )
+}
+
 interface Case {
   name: string
   /** Route pattern, so pages reading useParams() actually get their params. */
@@ -530,6 +548,58 @@ const cases: Case[] = [
       'Set every item to',
       'Check in whole kit',
     ],
+  },
+  {
+    name: 'SignIn',
+    route: '/',
+    element: <SignIn />,
+    store: empty,
+    expect: ['Sign in', 'Email', 'Password', 'Create an account', 'Forgot password?'],
+  },
+  {
+    name: 'VerifyEmail',
+    route: '/',
+    element: withAuth(<VerifyEmail email="ada@example.com" />, { status: 'signed-out' }),
+    store: empty,
+    expect: ['Check your email', 'ada@example.com', 'Resend the link'],
+  },
+  {
+    name: 'NoAccess',
+    route: '/',
+    element: <NoAccess email="stranger@example.com" />,
+    store: empty,
+    expect: ['No access yet', 'stranger@example.com'],
+  },
+  {
+    name: 'Access (admin)',
+    route: '/',
+    element: withAuth(<Access />, adminState),
+    store: buildStore(),
+    expect: ['Access', 'Add someone', 'Member', 'Admin'],
+  },
+  {
+    name: 'Access (member is sent away)',
+    route: '/',
+    element: withAuth(<Access />, { ...adminState, role: 'member' }),
+    store: buildStore(),
+    reject: ['Add someone'],
+  },
+  {
+    name: 'App shell (admin)',
+    route: '*',
+    url: '/kits',
+    element: withAuth(<App />, adminState),
+    store: buildStore(),
+    expect: ['Studio Inventory', 'Access', 'Sign out', 'admin@example.com', 'Interview kit'],
+  },
+  {
+    name: 'App shell (member has no Access tab)',
+    route: '*',
+    url: '/',
+    element: withAuth(<App />, { ...adminState, role: 'member' }),
+    store: buildStore(),
+    expect: ['Sign out'],
+    reject: ['Access'],
   },
   {
     name: 'ImportDialog (items)',

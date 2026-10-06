@@ -15,7 +15,7 @@ it, when it's due back, and what condition it came back in.
 - **Full loan history** per item and per person, exportable to CSV
 - Real-time — two people on two devices see the same state instantly
 
-Built as a React + TypeScript single-page app on Firebase (Firestore, Anonymous
+Built as a React + TypeScript single-page app on Firebase (Firestore, Email/Password
 Auth, Hosting) with photos hosted on Cloudinary's free tier.
 
 ---
@@ -54,7 +54,7 @@ Emulator data is wiped on exit unless you pass `--export-on-exit`.
 2. In the project, enable:
    - **Firestore Database** — start in production mode; the rules in this repo
      replace the defaults
-   - **Authentication → Sign-in method → Anonymous**
+   - **Authentication → Sign-in method → Email/Password**
 3. **Project settings → General → Your apps → Add app → Web**. Copy the config
    values into `.env` (see `.env.example` for the mapping).
 4. Link the local repo and push the rules:
@@ -134,21 +134,28 @@ is only offered for records that have never been part of a loan.
 
 ---
 
-## Security — read this before sharing the URL
+## Security — sign-in and the access list
 
-Every visitor is signed in anonymously so the security rules have something to
-check. That keeps unauthenticated scripts and random internet traffic out, but
-**anyone who can load the app URL can read and write the data.** For a studio
-tool on an internal-ish URL that's usually the right trade — nobody has to
-remember another login.
+Everyone signs in with an email and password. An account on its own gets
+nothing: the security rules only allow reads and writes when **both**
 
-If that isn't good enough for you, switch to Google sign-in with an allowlist:
+1. the email address has been **verified** (the user clicked the link Firebase
+   emails them — this stops someone registering an address they don't own), and
+2. that email is on the **access list** — a doc in the `staff` collection, keyed
+   by the lowercased email, with a role of `admin` or `member`.
 
-1. Enable **Google** as a sign-in provider in the Firebase console.
-2. Replace `signInAnonymously` in `src/lib/firebase.ts` with
-   `signInWithPopup(auth, new GoogleAuthProvider())`.
-3. Create a `staff` collection with one doc per allowed email address.
-4. In `firestore.rules`, uncomment `isStaff()` and swap `signedIn()` for it.
+Admins manage the list on the **Access** tab. To let someone in, add their
+email there; they then use **Create an account** on the sign-in page. Removing
+them cuts access immediately, including in a tab they already have open.
+
+The owner address is hard-coded as an admin in `isOwner()` in
+`firestore.rules` (and mirrored in `OWNER_EMAILS` in `src/lib/auth.tsx`), so the
+studio can't lock itself out. The owner's own `staff` entry is created on their
+first sign-in. Keep the two lists in sync if you change them.
+
+Setting it up on a project: Firebase console → **Authentication → Sign-in
+method** → enable **Email/Password** (and disable Anonymous, which nothing uses
+any more), then `firebase deploy --only firestore:rules`.
 
 The Firebase web config in `.env` is **not** a secret — it identifies the project
 to the client. Access control lives entirely in `firestore.rules`, which is why
@@ -161,7 +168,8 @@ deploying it is a required setup step.
 ```
 src/
   lib/
-    firebase.ts   Firebase init, emulator wiring, anonymous sign-in
+    firebase.ts   Firebase init, emulator wiring
+    auth.tsx      Sign-in, email verification, access list (staff) checks
     cloudinary.ts Unsigned photo uploads
     types.ts      Item / Person / Kit / Loan shapes
     kits.ts       Kit availability and tidy-up (pure, unit-tested)
@@ -169,7 +177,7 @@ src/
     store.tsx     Live subscriptions -> React context; derived indexes
     format.ts     Dates, due-date maths, loan view models
   components/     Dialogs (check out, check in, item, person, kit) and shared UI
-  pages/          Dashboard, Inventory, ItemDetail, Kits, Loans, People, Setup
+  pages/          Dashboard, Inventory, ItemDetail, Kits, Loans, People, Access, SignIn, Setup
 firestore.rules   Database access rules
 firebase.json     Hosting + emulator config
 ```

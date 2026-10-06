@@ -1,5 +1,5 @@
 import { initializeApp, type FirebaseOptions } from 'firebase/app'
-import { getAuth, connectAuthEmulator, signInAnonymously, onAuthStateChanged } from 'firebase/auth'
+import { getAuth, connectAuthEmulator } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
 
 const config: FirebaseOptions = {
@@ -27,32 +27,4 @@ export const db = getFirestore(app)
 if (useEmulators) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
-}
-
-/**
- * Every visitor gets an anonymous Firebase identity. Nobody logs in — the point
- * is only to give the security rules something to check, so the database isn't
- * open to unauthenticated traffic. Attribution comes from the people list.
- */
-export function ensureSignedIn(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      (user) => {
-        if (user) {
-          unsubscribe()
-          resolve()
-          return
-        }
-        signInAnonymously(auth).catch((err) => {
-          unsubscribe()
-          reject(err)
-        })
-      },
-      (err) => {
-        unsubscribe()
-        reject(err)
-      },
-    )
-  })
 }

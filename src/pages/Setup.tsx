@@ -20,7 +20,7 @@ export function Setup() {
           </li>
           <li>
             In the console turn on <strong>Firestore Database</strong>, <strong>Storage</strong>, and{' '}
-            <strong>Authentication → Anonymous</strong>.
+            <strong>Authentication → Email/Password</strong>.
           </li>
           <li>
             Copy <code>.env.example</code> to <code>.env</code> and paste in the web app's config

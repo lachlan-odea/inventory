@@ -2,71 +2,101 @@ rules_version = '2';
 
 // Studio Inventory security rules.
 //
-// The app signs every visitor in anonymously (see src/lib/firebase.ts), so
-// "request.auth != null" means "loaded the app from a client holding the
-// Firebase web config". That is deliberately a low bar: it keeps casual
-// internet traffic and unauthenticated scripts out, but it is NOT a substitute
-// for real access control.
-//
-// If this ever holds data you would not hand to anyone who can reach the URL,
-// switch to Google sign-in and gate on an allowlist — the commented
-// isStaff() helper below is the drop-in for that.
+// Access is email + password sign-in gated on an allowlist. Anyone can create
+// an account, but it can't read or write anything until BOTH:
+//   1. the email address is verified (proves they own it — otherwise anyone
+//      could register an allowlisted address first), and
+//   2. a doc for that lowercased email exists in /staff.
+// Admins manage /staff from the app's Access page. Owners are hard-coded so the
+// studio can never lock itself out; keep OWNER_EMAILS in src/lib/auth.tsx in
+// sync with the list below.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() {
-      return request.auth != null;
+    function verified() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
     }
 
-    // function isStaff() {
-    //   return signedIn() && exists(/databases/$(database)/documents/staff/$(request.auth.token.email));
-    // }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function isOwner() {
+      return verified() && myEmail() in ['lachlan.odea@wisetechglobal.com'];
+    }
+
+    function staffDoc() {
+      return /databases/$(database)/documents/staff/$(myEmail());
+    }
+
+    function isStaff() {
+      return isOwner() || (verified() && exists(staffDoc()));
+    }
+
+    function isAdmin() {
+      return isOwner() || (verified() && exists(staffDoc()) && get(staffDoc()).data.role == 'admin');
+    }
 
     function positiveInt(v) {
       return v is int && v >= 0;
     }
 
+    // The allowlist. Doc ID is the lowercased email.
+    match /staff/{email} {
+      // Anyone verified may read their OWN entry — that's how the app decides
+      // between "no access" and letting them in.
+      allow get: if isStaff() || (verified() && email == myEmail());
+      allow list: if isStaff();
+      allow create, update: if isAdmin()
+        && email == email.lower()
+        && request.resource.data.email == email
+        && request.resource.data.role in ['admin', 'member'];
+      allow delete: if isAdmin();
+    }
+
     match /items/{itemId} {
-      allow read: if signedIn();
-      allow create, update: if signedIn()
+      allow read: if isStaff();
+      allow create, update: if isStaff()
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 200
         && positiveInt(request.resource.data.totalQty)
         && positiveInt(request.resource.data.availableQty)
         && request.resource.data.availableQty <= request.resource.data.totalQty;
-      allow delete: if signedIn();
+      allow delete: if isStaff();
     }
 
     match /people/{personId} {
-      allow read: if signedIn();
-      allow create, update: if signedIn()
+      allow read: if isStaff();
+      allow create, update: if isStaff()
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 200;
-      allow delete: if signedIn();
+      allow delete: if isStaff();
     }
 
     match /kits/{kitId} {
-      allow read: if signedIn();
-      allow create, update: if signedIn()
+      allow read: if isStaff();
+      allow create, update: if isStaff()
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 200
         && request.resource.data.components is list
         && request.resource.data.components.size() <= 100;
       // Kits own no stock and loans carry the kit name, so deleting is safe.
-      allow delete: if signedIn();
+      allow delete: if isStaff();
     }
 
     match /loans/{loanId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
+      allow read: if isStaff();
+      allow create: if isStaff()
         && request.resource.data.itemId is string
         && request.resource.data.personId is string
         && request.resource.data.qty is int
         && request.resource.data.qty > 0;
-      allow update: if signedIn();
+      allow update: if isStaff();
       // Loans are the audit trail — they are never deleted, only returned.
       allow delete: if false;
     }
