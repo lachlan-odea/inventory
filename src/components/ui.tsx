@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import { ITEM_CONDITIONS, type Item, type ItemCondition, type LoanView } from '../lib/types'
 import { initials, plural, relativeDays } from '../lib/format'
 
@@ -127,6 +127,101 @@ export function Field({
       {children}
       {hint && <span className="field__hint">{hint}</span>}
     </label>
+  )
+}
+
+/**
+ * Free-text input that suggests existing values, so spelling stays consistent.
+ * Replaces <datalist>, whose native popup can't be themed and Chrome
+ * mispositions inside the modal.
+ */
+export function SuggestInput({
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  value: string
+  onChange: (value: string) => void
+  options: string[]
+  placeholder?: string
+}) {
+  const listId = useId()
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(-1)
+
+  const matches = useMemo(() => {
+    const q = value.trim().toLowerCase()
+    return options.filter((o) => o.toLowerCase().includes(q) && o !== value).slice(0, 12)
+  }, [options, value])
+
+  const showing = open && matches.length > 0
+
+  function pick(option: string) {
+    onChange(option)
+    setOpen(false)
+    setActive(-1)
+  }
+
+  return (
+    <div className="suggest">
+      <input
+        value={value}
+        placeholder={placeholder}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={showing}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={showing && active >= 0 ? `${listId}-${active}` : undefined}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+          setActive(-1)
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            setOpen(true)
+            setActive((i) => Math.min(i + 1, matches.length - 1))
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            setActive((i) => Math.max(i - 1, -1))
+          } else if (e.key === 'Enter' && showing && active >= 0) {
+            e.preventDefault()
+            pick(matches[active]!)
+          } else if (e.key === 'Escape' && showing) {
+            // Close the list without also closing the modal.
+            e.preventDefault()
+            e.stopPropagation()
+            setOpen(false)
+          }
+        }}
+      />
+      {showing && (
+        <ul className="suggest__list" id={listId} role="listbox">
+          {matches.map((option, i) => (
+            <li
+              key={option}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === active}
+              className={i === active ? 'is-active' : undefined}
+              // mousedown, not click: click fires after blur has closed the list.
+              onMouseDown={(e) => {
+                e.preventDefault()
+                pick(option)
+              }}
+              onMouseEnter={() => setActive(i)}
+            >
+              {option}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

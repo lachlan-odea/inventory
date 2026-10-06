@@ -586,6 +586,7 @@ p {
 
 /* ------------------------------------------------------------------ inputs */
 
+input:not([type]),
 input[type='text'],
 input[type='search'],
 input[type='number'],
@@ -613,6 +614,35 @@ textarea:focus-visible,
 }
 textarea {
   resize: vertical;
+}
+
+.suggest {
+  position: relative;
+}
+.suggest__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+}
+.suggest__list li {
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.suggest__list li.is-active {
+  background: var(--accent-soft);
+  color: var(--text);
 }
 
 .form {

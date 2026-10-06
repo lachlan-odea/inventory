@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Modal } from './Modal'
-import { Field } from './ui'
+import { Field, SuggestInput } from './ui'
 import { createPerson, updatePerson } from '../lib/db'
 import { describeFirebaseError } from '../lib/store'
 import { useToast } from './Toast'
@@ -84,12 +84,7 @@ export function PersonDialog({ person, roles, onClose }: Props) {
         </div>
 
         <Field label="Role" hint="Producer, Editor, Contractor…">
-          <input value={form.role} onChange={(e) => set('role', e.target.value)} list="role-options" />
-          <datalist id="role-options">
-            {roles.map((r) => (
-              <option key={r} value={r} />
-            ))}
-          </datalist>
+          <SuggestInput value={form.role} onChange={(v) => set('role', v)} options={roles} />
         </Field>
 
         <Field label="Notes">

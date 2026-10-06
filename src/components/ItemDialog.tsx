@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Modal } from './Modal'
-import { Field, TriStateField } from './ui'
+import { Field, SuggestInput, TriStateField } from './ui'
 import { PhotoPicker } from './PhotoPicker'
 import { createItem, removeItemPhoto, setItemPhoto, updateItem } from '../lib/db'
 import { describeFirebaseError } from '../lib/store'
@@ -8,6 +8,7 @@ import { useToast } from './Toast'
 import {
   EMPTY_ITEM,
   ITEM_CONDITIONS,
+  STUDIO_LOCATIONS,
   type Item,
   type ItemCondition,
   type NewItemInput,
@@ -136,30 +137,20 @@ export function ItemDialog({ item, categories, locations, onClose }: Props) {
 
         <div className="form-row">
           <Field label="Category">
-            <input
+            <SuggestInput
               value={form.category}
-              onChange={(e) => set('category', e.target.value)}
-              list="category-options"
+              onChange={(v) => set('category', v)}
+              options={categories}
               placeholder="Camera"
             />
-            <datalist id="category-options">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
           </Field>
           <Field label="Studio Location">
-            <input
+            <SuggestInput
               value={form.location}
-              onChange={(e) => set('location', e.target.value)}
-              list="location-options"
+              onChange={(v) => set('location', v)}
+              options={[...new Set([...STUDIO_LOCATIONS, ...locations])].sort()}
               placeholder="SYD"
             />
-            <datalist id="location-options">
-              {locations.map((l) => (
-                <option key={l} value={l} />
-              ))}
-            </datalist>
           </Field>
         </div>
 
