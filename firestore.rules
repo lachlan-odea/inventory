@@ -43,6 +43,27 @@ service cloud.firestore {
       return v is int && v >= 0;
     }
 
+    // ---- Photo sessions (QR code → phone camera) ----
+    // A phone with no account can set an item's photo only while it holds the
+    // ID of a live session that lists that item. The ID is an unguessable
+    // Firestore auto-ID, shared only in the QR code shown at the desk.
+
+    function photoSession(sessionId) {
+      return /databases/$(database)/documents/photoSessions/$(sessionId);
+    }
+
+    function sessionAllows(sessionId, itemId) {
+      return sessionId is string
+        && itemId is string
+        && exists(photoSession(sessionId))
+        && get(photoSession(sessionId)).data.expiresAt > request.time
+        && itemId in get(photoSession(sessionId)).data.itemIds;
+    }
+
+    function cloudinaryUrl(v) {
+      return v is string && v.size() <= 500 && v.matches('https://res[.]cloudinary[.]com/.+');
+    }
+
     // The allowlist. Doc ID is the lowercased email.
     match /staff/{email} {
       // Anyone verified may read their OWN entry — that's how the app decides
@@ -65,7 +86,45 @@ service cloud.firestore {
         && positiveInt(request.resource.data.totalQty)
         && positiveInt(request.resource.data.availableQty)
         && request.resource.data.availableQty <= request.resource.data.totalQty;
+      // A phone in a photo session: the photo fields only, nothing else.
+      allow update: if request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['photoUrl', 'photoPath', 'photoSessionId', 'updatedAt'])
+        && sessionAllows(request.resource.data.photoSessionId, itemId)
+        && cloudinaryUrl(request.resource.data.photoUrl)
+        && request.resource.data.photoPath is string
+        && request.resource.data.photoPath.size() <= 300
+        && request.resource.data.updatedAt == request.time;
       allow delete: if isStaff();
+    }
+
+    match /photoSessions/{sessionId} {
+      // Readable by ID — that's how the phone loads it — but only while live.
+      allow get: if isStaff() || resource.data.expiresAt > request.time;
+      allow list: if isStaff();
+      allow create: if isStaff()
+        && request.resource.data.createdBy == myEmail()
+        && request.resource.data.itemIds is list
+        && request.resource.data.itemIds.size() > 0
+        && request.resource.data.itemIds.size() <= 2000
+        && request.resource.data.items is list
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt <= request.time + duration.value(12, 'h');
+      // Ending a session early sets expiresAt to now.
+      allow update, delete: if isStaff();
+
+      match /uploads/{uploadId} {
+        allow read: if isStaff();
+        allow create: if sessionAllows(sessionId, request.resource.data.itemId)
+          && request.resource.data.keys().hasOnly(['itemId', 'itemName', 'url', 'publicId', 'createdAt'])
+          && request.resource.data.itemName is string
+          && request.resource.data.itemName.size() <= 200
+          && cloudinaryUrl(request.resource.data.url)
+          && request.resource.data.publicId is string
+          && request.resource.data.publicId.size() <= 300
+          && request.resource.data.createdAt == request.time;
+        // The log of who-photographed-what is append-only.
+        allow update, delete: if false;
+      }
     }
 
     match /people/{personId} {

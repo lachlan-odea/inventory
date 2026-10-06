@@ -4,6 +4,7 @@ import { useStore, describeFirebaseError } from '../lib/store'
 import { ItemDialog } from '../components/ItemDialog'
 import { CheckOutDialog } from '../components/CheckOutDialog'
 import { CheckInDialog } from '../components/CheckInDialog'
+import { PhoneCameraDialog } from '../components/PhoneCameraDialog'
 import {
   ConditionBadge,
   DueBadge,
@@ -26,6 +27,7 @@ export function ItemDetail() {
   const [editing, setEditing] = useState(false)
   const [checkingOut, setCheckingOut] = useState(false)
   const [checkingIn, setCheckingIn] = useState<LoanView | null>(null)
+  const [phonePhoto, setPhonePhoto] = useState(false)
 
   const item = itemsById.get(itemId)
   const openLoans = openLoansByItem.get(itemId) ?? []
@@ -120,6 +122,9 @@ export function ItemDetail() {
             </button>
             <button className="btn btn--ghost" onClick={() => setEditing(true)}>
               Edit
+            </button>
+            <button className="btn btn--ghost" onClick={() => setPhonePhoto(true)}>
+              📱 Photo from phone
             </button>
             <button className="btn btn--ghost" onClick={toggleArchive}>
               {item.archived ? 'Restore' : 'Archive'}
@@ -276,6 +281,9 @@ export function ItemDetail() {
       )}
       {checkingOut && <CheckOutDialog item={item} onClose={() => setCheckingOut(false)} />}
       {checkingIn && <CheckInDialog loan={checkingIn} onClose={() => setCheckingIn(null)} />}
+      {phonePhoto && (
+        <PhoneCameraDialog items={[item]} label={item.idNumber || item.name} onClose={() => setPhonePhoto(false)} />
+      )}
     </div>
   )
 }

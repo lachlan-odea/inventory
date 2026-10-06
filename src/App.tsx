@@ -1,8 +1,9 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useMatch } from 'react-router-dom'
 import { isConfigured } from './lib/firebase'
 import { StoreProvider, useStore } from './lib/store'
 import { signOut, useAuth } from './lib/auth'
 import { Access } from './pages/Access'
+import { Capture } from './pages/Capture'
 import { NoAccess, SignIn, VerifyEmail } from './pages/SignIn'
 import { Dashboard } from './pages/Dashboard'
 import { Inventory } from './pages/Inventory'
@@ -24,11 +25,16 @@ const NAV = [
  * Decides what a visitor sees before any studio data loads: setup, sign-in,
  * "check your email", "no access", or the app itself. The data store only
  * mounts for allowlisted staff, so nobody else's browser even subscribes.
+ *
+ * The one exception is a photo-session link opened on a phone: it needs no
+ * account and reads nothing but its own session (see pages/Capture.tsx).
  */
 export function AuthGate() {
   const { state } = useAuth()
+  const capture = useMatch('/capture/:sessionId')
 
   if (!isConfigured) return <Setup />
+  if (capture) return <Capture sessionId={capture.params.sessionId ?? ''} />
 
   switch (state.status) {
     case 'loading':

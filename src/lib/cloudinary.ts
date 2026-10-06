@@ -12,6 +12,32 @@ export interface UploadedPhoto {
 }
 
 /**
+ * Scales a photo down to `maxEdge` px on its long side and re-encodes it as
+ * JPEG. Phone cameras shoot 12+ MP; that's slow to send over studio wifi and
+ * far bigger than an inventory thumbnail needs. Falls back to the original
+ * whenever the browser can't decode it (e.g. HEIC on older Safari) — Cloudinary
+ * accepts those as they are.
+ */
+export async function shrinkImage(file: File, maxEdge = 2000, quality = 0.85): Promise<File> {
+  if (typeof createImageBitmap !== 'function') return file
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
+    if (!blob || blob.size >= file.size) return file
+    return new File([blob], `${file.name.replace(/\.[^.]+$/, '') || 'photo'}.jpg`, { type: 'image/jpeg' })
+  } catch {
+    return file
+  }
+}
+
+/**
  * Unsigned upload straight from the browser — no backend needed. Requires an
  * unsigned upload preset configured in the Cloudinary console (Settings →
  * Upload → Upload presets → add preset → Signing mode: Unsigned).

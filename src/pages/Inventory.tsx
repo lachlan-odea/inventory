@@ -4,6 +4,7 @@ import { useStore } from '../lib/store'
 import { ItemDialog } from '../components/ItemDialog'
 import { CheckOutDialog } from '../components/CheckOutDialog'
 import { ImportDialog } from '../components/ImportDialog'
+import { PhoneCameraDialog } from '../components/PhoneCameraDialog'
 import { EmptyState, ItemThumb, StockBadge, ConditionBadge, ServiceBadge } from '../components/ui'
 import { plural } from '../lib/format'
 import { STUDIO_LOCATIONS, type Item, type LoanView } from '../lib/types'
@@ -57,6 +58,8 @@ export function Inventory() {
   const [showArchived, setShowArchived] = useState(false)
   const [adding, setAdding] = useState(false)
   const [importing, setImporting] = useState(false)
+  // Frozen when opened, so the session covers what was on screen at the time.
+  const [phoneItems, setPhoneItems] = useState<Item[] | null>(null)
   const [checkOutItem, setCheckOutItem] = useState<Item | null>(null)
 
   const categories = useMemo(
@@ -124,6 +127,14 @@ export function Inventory() {
           <p className="muted">{plural(items.filter((i) => !i.archived).length, 'item')} tracked</p>
         </div>
         <div className="btn-row">
+          <button
+            className="btn btn--ghost"
+            disabled={visible.length === 0}
+            title="Show a QR code so someone can photograph the items listed below on their phone"
+            onClick={() => setPhoneItems(visible)}
+          >
+            📱 Photos from phone
+          </button>
           <button className="btn btn--ghost" onClick={() => setImporting(true)}>
             Import from Excel
           </button>
@@ -235,6 +246,15 @@ export function Inventory() {
         />
       )}
       {importing && <ImportDialog kind="items" onClose={() => setImporting(false)} />}
+      {phoneItems && (
+        <PhoneCameraDialog
+          items={phoneItems}
+          label={[location === 'all' ? 'All locations' : location, category === 'all' ? '' : category]
+            .filter(Boolean)
+            .join(' · ')}
+          onClose={() => setPhoneItems(null)}
+        />
+      )}
       {checkOutItem && (
         <CheckOutDialog item={checkOutItem} onClose={() => setCheckOutItem(null)} />
       )}

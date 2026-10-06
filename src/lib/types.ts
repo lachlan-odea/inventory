@@ -212,6 +212,40 @@ export interface KitCheckInInput {
   photo?: File | null
 }
 
+/** The slice of an item a phone in a photo session gets to see. */
+export interface PhotoSessionItem {
+  id: string
+  name: string
+  idNumber: string
+  location: string
+  photoUrl: string | null
+}
+
+/**
+ * A short-lived link, shared as a QR code, that lets a phone with no account
+ * take photos for a fixed set of items. The unguessable doc ID is the key;
+ * firestore.rules limit what it unlocks to those items' photo fields, until
+ * `expiresAt`.
+ */
+export interface PhotoSession {
+  id: string
+  /** What the session covers, e.g. "SYD · 48 items" — shown on the phone. */
+  label: string
+  createdBy: string
+  createdAt: Timestamp | null
+  expiresAt: Timestamp | null
+  items: PhotoSessionItem[]
+}
+
+/** One photo taken in a session, logged so the desk can watch them arrive. */
+export interface PhotoUpload {
+  id: string
+  itemId: string
+  itemName: string
+  url: string
+  createdAt: Timestamp | null
+}
+
 export interface CheckInInput {
   loanId: string
   qty: number

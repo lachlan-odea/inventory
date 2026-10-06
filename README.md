@@ -12,6 +12,8 @@ it, when it's due back, and what condition it came back in.
   step from the Kits page — untick anything that is not back yet
 - **Due dates** with overdue flagging on the dashboard and a badge in the nav
 - **Photos** per item, plus a condition rating and notes recorded on every return
+- **Photos from a phone** — show a QR code at the desk and someone else can
+  photograph gear on their phone, no account needed (see below)
 - **Full loan history** per item and per person, exportable to CSV
 - Real-time — two people on two devices see the same state instantly
 
@@ -101,7 +103,7 @@ can use the app — see the security note below before sharing it widely.
 
 ## How the data is modelled
 
-Four Firestore collections:
+Five Firestore collections:
 
 | Collection | What it holds |
 | --- | --- |
@@ -109,6 +111,7 @@ Four Firestore collections:
 | `people` | The borrower list. Checkout picks from these. |
 | `kits` | Named bundles of items + quantities. Own no stock themselves. |
 | `loans` | One document per check-out event. Never deleted — this is the audit trail. |
+| `photoSessions` | Short-lived QR-code links for taking photos on a phone, each with an `uploads` log. |
 
 **Availability is derived but stored.** `availableQty` is decremented at checkout
 and incremented at check-in inside a Firestore transaction, so two people
@@ -156,6 +159,33 @@ first sign-in. Keep the two lists in sync if you change them.
 Setting it up on a project: Firebase console → **Authentication → Sign-in
 method** → enable **Email/Password** (and disable Anonymous, which nothing uses
 any more), then `firebase deploy --only firestore:rules`.
+
+### Photos from a phone (QR code)
+
+**Inventory → Photos from phone** (or **Photo from phone** on an item) shows a QR
+code. Scanning it opens `/capture/<session id>` on the phone: tap an item, the
+rear camera opens, and the photo is set as that item's photo straight away. The
+desk dialog lists photos as they arrive. A session covers the items the inventory
+list was showing when it was opened, so filter by location or category first.
+
+The phone doesn't sign in — the unguessable session ID in the QR code is the
+only key, so treat the code like a temporary password. `firestore.rules` limits
+what it unlocks to:
+
+- reading that one session (the item names, IDs and current photos in it),
+- changing **only** `photoUrl` / `photoPath` on the items in that session, to a
+  Cloudinary URL, and
+- appending to the session's `uploads` log,
+
+and only until it expires (3 hours) or someone presses **End session**. Session
+links need the new rules deployed: `firebase deploy --only firestore:rules`.
+
+Running locally: a phone usually can't reach the dev server — `localhost` is the
+phone itself, and Windows Firewall or office wifi blocks the LAN address. Set
+`VITE_PUBLIC_URL` in `.env` to the deployed site (e.g.
+`https://<owner>.github.io/<repo>/`) and QR codes made locally will open there
+instead; both talk to the same Firebase project. The deployed site must include
+this feature, so push it first.
 
 The Firebase web config in `.env` is **not** a secret — it identifies the project
 to the client. Access control lives entirely in `firestore.rules`, which is why

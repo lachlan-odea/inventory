@@ -34,6 +34,9 @@ import { AuthContext, type AuthState } from './lib/auth'
 import { Access } from './pages/Access'
 import { NoAccess, SignIn, VerifyEmail } from './pages/SignIn'
 import App from './App'
+import { PhoneCameraDialog } from './components/PhoneCameraDialog'
+import { Capture, CaptureSession } from './pages/Capture'
+import type { PhotoSession } from './lib/types'
 
 const daysFromNow = (n: number) => Timestamp.fromDate(new Date(Date.now() + n * 86400000))
 
@@ -343,6 +346,19 @@ interface Case {
 
 const noop = () => {}
 
+/** A phone-photo session over two items, one of which already has a photo. */
+const photoSession: PhotoSession = {
+  id: 'sess1',
+  label: 'SYD · Camera',
+  createdBy: 'admin@example.com',
+  createdAt: daysFromNow(0),
+  expiresAt: daysFromNow(1),
+  items: [
+    { id: 'cam1', name: 'Sony A6500', idNumber: 'STUDIO 102', location: 'SYD', photoUrl: null },
+    { id: 'cbl1', name: 'XLR cable 5m', idNumber: '', location: 'SYD', photoUrl: 'https://res.cloudinary.com/demo/x.jpg' },
+  ],
+}
+
 const cases: Case[] = [
   {
     name: 'Dashboard (populated)',
@@ -650,6 +666,52 @@ const cases: Case[] = [
     store: buildStore(),
     expect: ['Sign out'],
     reject: ['Access'],
+  },
+  {
+    name: 'PhoneCameraDialog',
+    route: '/',
+    element: withAuth(<PhoneCameraDialog items={items.slice(0, 2)} label="SYD" onClose={noop} />, adminState),
+    store: buildStore(),
+    expect: ['Take photos on a phone', 'SYD · 2 items', 'Scan this with the phone', 'Copy link'],
+  },
+  {
+    name: 'Inventory offers phone photos',
+    route: '/inventory',
+    element: <Inventory />,
+    store: buildStore(),
+    expect: ['Photos from phone'],
+  },
+  {
+    name: 'ItemDetail offers a phone photo',
+    route: '/inventory/:itemId',
+    url: '/inventory/cam1',
+    element: <ItemDetail />,
+    store: buildStore(),
+    expect: ['Photo from phone'],
+  },
+  {
+    name: 'Capture (loading)',
+    route: '/',
+    element: <Capture sessionId="sess1" />,
+    store: empty,
+    expect: ['Opening photo session'],
+  },
+  {
+    name: 'CaptureSession (list)',
+    route: '/',
+    element: <CaptureSession session={photoSession} />,
+    store: empty,
+    // Needs-a-photo is on by default, so the cable (already photographed) is hidden.
+    expect: ['SYD · Camera', '2 items · 0 photographed', 'Sony A6500', 'Needs a photo', 'capture="environment"'],
+    reject: ['XLR cable 5m'],
+  },
+  {
+    name: 'CaptureSession (single item)',
+    route: '/',
+    element: <CaptureSession session={{ ...photoSession, items: [photoSession.items[0]!] }} />,
+    store: empty,
+    expect: ['Sony A6500', 'Take photo', 'STUDIO 102'],
+    reject: ['Needs a photo'],
   },
   {
     name: 'ImportDialog (items)',

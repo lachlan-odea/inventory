@@ -1531,3 +1531,182 @@ code {
     height: 220px;
   }
 }
+
+/* ------------------------------------------------- phone photo sessions */
+
+/* Desk side: the QR dialog. */
+.phone-session {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.phone-session__qr {
+  display: grid;
+  place-items: center;
+  width: 240px;
+  height: 240px;
+  flex: none;
+  padding: 0.5rem;
+  /* QR codes need a light background to scan, even in dark mode. */
+  background: #ffffff;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.phone-session__qr img {
+  width: 100%;
+  height: 100%;
+}
+.phone-session__steps {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+.phone-session__steps ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.phone-session__feed {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.phone-session__feed h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+.phone-session__feed ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.phone-session__feed li {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+/* Phone side: the capture page. */
+.capture {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1rem 1rem 3rem;
+}
+.capture__head h1 {
+  margin: 0.15rem 0;
+  font-size: 1.35rem;
+  overflow-wrap: anywhere;
+}
+.capture__kicker {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.capture__tools {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1rem -1rem 0.5rem;
+  padding: 0.6rem 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.capture__tools input[type='search'] {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px; /* below 16px, iOS zooms the page on focus */
+}
+.capture__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.capture-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.capture-row.is-done {
+  border-color: var(--good);
+}
+.capture-row .thumb {
+  flex: none;
+}
+.capture-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.capture-row__body strong {
+  overflow-wrap: anywhere;
+}
+.capture-row .btn {
+  flex: none;
+  min-height: 44px; /* comfortable thumb target */
+  min-width: 84px;
+  justify-content: center;
+}
+.capture__status {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.capture__status.is-done {
+  color: var(--good);
+  font-weight: 600;
+}
+.capture__status.is-error {
+  color: var(--bad);
+}
+.capture-single {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  margin-top: 1.25rem;
+}
+.capture-single__photo {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.capture-single__photo--empty {
+  display: grid;
+  place-items: center;
+  font-size: 3rem;
+}
+.capture-single__btn {
+  width: 100%;
+  min-height: 52px;
+  justify-content: center;
+  font-size: 1.05rem;
+}
+.phone-session__url {
+  max-width: 100%;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
