@@ -93,3 +93,16 @@ export function kitStatus(kit: Kit, itemsById: Map<string, Item>): KitStatus {
     totalUnits: lines.reduce((sum, l) => sum + l.needed, 0),
   }
 }
+
+/**
+ * Where a kit lives, taken from its items' studio locations (normalised the
+ * same way as the Inventory filter). A kit mixing studios belongs to each.
+ */
+export function kitLocations(kit: Kit, itemsById: Map<string, Item>): Set<string> {
+  const locations = new Set<string>()
+  for (const c of kit.components) {
+    const key = itemsById.get(c.itemId)?.location.trim().toUpperCase()
+    if (key) locations.add(key)
+  }
+  return locations
+}

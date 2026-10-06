@@ -6,16 +6,33 @@ import { KitCheckOutDialog } from '../components/KitCheckOutDialog'
 import { KitCheckInDialog } from '../components/KitCheckInDialog'
 import { DueBadge, EmptyState } from '../components/ui'
 import { deleteKit, setKitArchived } from '../lib/db'
-import { groupKitCheckouts, kitStatus, type KitCheckout } from '../lib/kits'
+import { groupKitCheckouts, kitLocations, kitStatus, type KitCheckout } from '../lib/kits'
 import { useToast } from '../components/Toast'
 import { plural } from '../lib/format'
-import type { Kit } from '../lib/types'
+import { STUDIO_LOCATIONS, type Kit } from '../lib/types'
+
+// Remembered per browser; first visit follows the Inventory page's choice so
+// staff land on their own studio.
+const LOCATION_STORAGE_KEY = 'kits.location'
+
+function loadLocation(): string {
+  try {
+    return (
+      localStorage.getItem(LOCATION_STORAGE_KEY) ||
+      localStorage.getItem('inventory.location') ||
+      'all'
+    )
+  } catch {
+    return 'all'
+  }
+}
 
 export function Kits() {
   const { kits, itemsById, openLoans } = useStore()
   const toast = useToast()
 
   const [search, setSearch] = useState('')
+  const [location, setLocationState] = useState(loadLocation)
   const [showArchived, setShowArchived] = useState(false)
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<Kit | null>(null)
@@ -31,15 +48,42 @@ export function Kits() {
     return map
   }, [openLoans])
 
+  const locationsByKit = useMemo(
+    () => new Map(kits.map((kit) => [kit.id, kitLocations(kit, itemsById)])),
+    [kits, itemsById],
+  )
+
+  // The studios are always offered, plus any other location kits' items use.
+  const locationCounts = useMemo(() => {
+    const counts = new Map<string, number>(STUDIO_LOCATIONS.map((l) => [l, 0]))
+    for (const kit of kits) {
+      if (kit.archived !== showArchived) continue
+      for (const loc of locationsByKit.get(kit.id) ?? []) {
+        counts.set(loc, (counts.get(loc) ?? 0) + 1)
+      }
+    }
+    return [...counts]
+  }, [kits, locationsByKit, showArchived])
+
+  function setLocation(value: string) {
+    setLocationState(value)
+    try {
+      localStorage.setItem(LOCATION_STORAGE_KEY, value)
+    } catch {
+      // Private mode or blocked storage — the choice just won't be remembered.
+    }
+  }
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     return kits.filter((kit) => {
       if (kit.archived !== showArchived) return false
+      if (location !== 'all' && !locationsByKit.get(kit.id)?.has(location)) return false
       if (!q) return true
       const itemNames = kit.components.map((c) => itemsById.get(c.itemId)?.name ?? '')
       return [kit.name, kit.description, ...itemNames].join(' ').toLowerCase().includes(q)
     })
-  }, [kits, itemsById, search, showArchived])
+  }, [kits, itemsById, locationsByKit, location, search, showArchived])
 
   async function toggleArchive(kit: Kit) {
     try {
@@ -76,6 +120,25 @@ export function Kits() {
       </header>
 
       <div className="toolbar">
+        <div className="segmented" role="group" aria-label="Studio location">
+          <button
+            className={location === 'all' ? 'is-on' : undefined}
+            aria-pressed={location === 'all'}
+            onClick={() => setLocation('all')}
+          >
+            All
+          </button>
+          {locationCounts.map(([loc, count]) => (
+            <button
+              key={loc}
+              className={location === loc ? 'is-on' : undefined}
+              aria-pressed={location === loc}
+              onClick={() => setLocation(loc)}
+            >
+              {loc} <span className="muted">{count}</span>
+            </button>
+          ))}
+        </div>
         <input
           type="search"
           className="toolbar__search"
@@ -100,7 +163,9 @@ export function Kits() {
           message={
             kits.length === 0
               ? 'Group gear that usually goes out together — an interview kit, a podcast kit — and check it all out in one step.'
-              : 'Try a different search.'
+              : location !== 'all'
+                ? `No ${showArchived ? 'archived ' : ''}kits at ${location} match. Try another studio or search.`
+                : 'Try a different search.'
           }
           action={
             kits.length === 0 ? (
@@ -121,6 +186,7 @@ export function Kits() {
                   <div>
                     <strong className="kit-card__name">{kit.name}</strong>
                     <p className="muted">
+                      {[...(locationsByKit.get(kit.id) ?? [])].sort().join(' / ') || 'No location'} ·{' '}
                       {plural(status.lines.length, 'item')} · {plural(status.totalUnits, 'unit')}
                       {kit.description ? ` · ${kit.description}` : ''}
                     </p>
