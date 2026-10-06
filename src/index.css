@@ -815,6 +815,112 @@ textarea {
   background: var(--surface-2);
 }
 
+/* Inventory view switch: tiles (above), list and mosaic. */
+.view-switch {
+  margin-left: auto;
+}
+.view-switch button {
+  white-space: nowrap;
+}
+
+.item-table td {
+  vertical-align: middle;
+}
+.item-table__thumb {
+  width: 52px;
+}
+.item-table__thumb .thumb--empty {
+  width: 36px;
+  height: 36px;
+  font-size: 1rem;
+}
+.item-table__id {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.item-table__flags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.item-table__flags:empty {
+  display: none;
+}
+
+.mosaic {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+}
+.mosaic__tile {
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.mosaic__tile.is-overdue {
+  border-color: color-mix(in srgb, var(--bad) 60%, var(--border));
+}
+.mosaic__link {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  color: inherit;
+  text-decoration: none;
+}
+.mosaic__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--surface-2);
+  transition: transform 0.2s ease;
+}
+.mosaic__link:hover .mosaic__img,
+.mosaic__link:focus-visible .mosaic__img {
+  transform: scale(1.04);
+}
+.mosaic__img--empty {
+  display: grid;
+  place-items: center;
+  font-size: 2.5rem;
+}
+.mosaic__badge {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+}
+.mosaic__caption {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 0.6rem 0.5rem;
+  background: linear-gradient(to top, rgb(0 0 0 / 75%), transparent);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1.25;
+}
+.mosaic__caption strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mosaic__caption span {
+  opacity: 0.8;
+  font-size: 0.75rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mosaic__img {
+    transition: none;
+  }
+}
+
 .person-list {
   display: flex;
   flex-direction: column;

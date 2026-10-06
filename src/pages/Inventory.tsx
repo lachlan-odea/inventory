@@ -6,31 +6,53 @@ import { CheckOutDialog } from '../components/CheckOutDialog'
 import { ImportDialog } from '../components/ImportDialog'
 import { EmptyState, ItemThumb, StockBadge, ConditionBadge, ServiceBadge } from '../components/ui'
 import { plural } from '../lib/format'
-import { STUDIO_LOCATIONS, type Item } from '../lib/types'
+import { STUDIO_LOCATIONS, type Item, type LoanView } from '../lib/types'
 
 type StockFilter = 'all' | 'available' | 'out'
 
-/** Remembered per browser, so each studio's staff land on their own gear. */
+type InventoryView = 'tiles' | 'list' | 'mosaic'
+
+const VIEWS: { value: InventoryView; label: string; icon: string }[] = [
+  { value: 'tiles', label: 'Tiles', icon: '▦' },
+  { value: 'list', label: 'List', icon: '☰' },
+  { value: 'mosaic', label: 'Mosaic', icon: '▩' },
+]
+
+// Both remembered per browser, so each studio's staff land on their own gear,
+// laid out the way they like it.
 const LOCATION_STORAGE_KEY = 'inventory.location'
+const VIEW_STORAGE_KEY = 'inventory.view'
+
+function load(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function save(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Private mode or blocked storage — the choice just won't be remembered.
+  }
+}
 
 /** "syd ", "Syd" and "SYD" are the same studio. */
 function locationKey(location: string): string {
   return location.trim().toUpperCase()
 }
 
-function readSavedLocation(): string {
-  try {
-    return localStorage.getItem(LOCATION_STORAGE_KEY) || 'all'
-  } catch {
-    return 'all'
-  }
-}
-
 export function Inventory() {
   const { items, openLoansByItem } = useStore()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
-  const [location, setLocationState] = useState(readSavedLocation)
+  const [location, setLocationState] = useState(() => load(LOCATION_STORAGE_KEY) || 'all')
+  const [view, setViewState] = useState<InventoryView>(() => {
+    const saved = load(VIEW_STORAGE_KEY)
+    return VIEWS.some((v) => v.value === saved) ? (saved as InventoryView) : 'tiles'
+  })
   const [stock, setStock] = useState<StockFilter>('all')
   const [showArchived, setShowArchived] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -60,11 +82,12 @@ export function Inventory() {
 
   function setLocation(value: string) {
     setLocationState(value)
-    try {
-      localStorage.setItem(LOCATION_STORAGE_KEY, value)
-    } catch {
-      // Private mode or blocked storage — the filter just won't be remembered.
-    }
+    save(LOCATION_STORAGE_KEY, value)
+  }
+
+  function setView(value: InventoryView) {
+    setViewState(value)
+    save(VIEW_STORAGE_KEY, value)
   }
 
   const visible = useMemo(() => {
@@ -158,6 +181,19 @@ export function Inventory() {
           />
           Archived
         </label>
+        <div className="segmented view-switch" role="group" aria-label="View">
+          {VIEWS.map((v) => (
+            <button
+              key={v.value}
+              className={view === v.value ? 'is-on' : undefined}
+              aria-pressed={view === v.value}
+              onClick={() => setView(v.value)}
+              title={`${v.label} view`}
+            >
+              <span aria-hidden="true">{v.icon}</span> {v.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {visible.length === 0 ? (
@@ -183,49 +219,12 @@ export function Inventory() {
           }
         />
       ) : (
-        <ul className="item-grid">
-          {visible.map((item) => {
-            const loans = openLoansByItem.get(item.id) ?? []
-            const overdue = loans.some((l) => l.isOverdue)
-            return (
-              <li key={item.id} className={`item-card${overdue ? ' is-overdue' : ''}`}>
-                <Link to={`/inventory/${item.id}`} className="item-card__link">
-                  <ItemThumb item={item} size={64} />
-                  <div className="item-card__body">
-                    <div className="item-card__title">
-                      <strong>{item.name}</strong>
-                      <StockBadge item={item} />
-                    </div>
-                    {item.idNumber && <p className="item-card__id">{item.idNumber}</p>}
-                    <p className="muted">
-                      {[item.category, item.location, item.modelNumber]
-                        .filter(Boolean)
-                        .join(' · ') || 'No category'}
-                    </p>
-                    {loans.length > 0 && (
-                      <p className={`muted small${overdue ? ' text-bad' : ''}`}>
-                        Out with {loans.map((l) => l.personName).join(', ')}
-                      </p>
-                    )}
-                    <div className="item-card__flags">
-                      {item.condition !== 'good' && <ConditionBadge condition={item.condition} />}
-                      <ServiceBadge item={item} />
-                    </div>
-                  </div>
-                </Link>
-                <div className="item-card__actions">
-                  <button
-                    className="btn btn--small"
-                    disabled={item.availableQty === 0 || item.archived}
-                    onClick={() => setCheckOutItem(item)}
-                  >
-                    Check out
-                  </button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+        <ItemsView
+          view={view}
+          items={visible}
+          openLoansByItem={openLoansByItem}
+          onCheckOut={setCheckOutItem}
+        />
       )}
 
       {adding && (
@@ -240,5 +239,160 @@ export function Inventory() {
         <CheckOutDialog item={checkOutItem} onClose={() => setCheckOutItem(null)} />
       )}
     </div>
+  )
+}
+
+/* -------------------------------------------------------------------- views */
+
+interface ViewProps {
+  items: Item[]
+  openLoansByItem: Map<string, LoanView[]>
+  onCheckOut: (item: Item) => void
+}
+
+function ItemsView({ view, ...props }: ViewProps & { view: InventoryView }) {
+  if (view === 'list') return <ListView {...props} />
+  if (view === 'mosaic') return <MosaicView {...props} />
+  return <TilesView {...props} />
+}
+
+function CheckOutButton({ item, onCheckOut }: { item: Item; onCheckOut: (item: Item) => void }) {
+  return (
+    <button
+      className="btn btn--small"
+      disabled={item.availableQty === 0 || item.archived}
+      onClick={() => onCheckOut(item)}
+    >
+      Check out
+    </button>
+  )
+}
+
+/** Cards with photo, details, who has it and condition flags. */
+function TilesView({ items, openLoansByItem, onCheckOut }: ViewProps) {
+  return (
+    <ul className="item-grid">
+      {items.map((item) => {
+        const loans = openLoansByItem.get(item.id) ?? []
+        const overdue = loans.some((l) => l.isOverdue)
+        return (
+          <li key={item.id} className={`item-card${overdue ? ' is-overdue' : ''}`}>
+            <Link to={`/inventory/${item.id}`} className="item-card__link">
+              <ItemThumb item={item} size={64} />
+              <div className="item-card__body">
+                <div className="item-card__title">
+                  <strong>{item.name}</strong>
+                  <StockBadge item={item} />
+                </div>
+                {item.idNumber && <p className="item-card__id">{item.idNumber}</p>}
+                <p className="muted">
+                  {[item.category, item.location, item.modelNumber].filter(Boolean).join(' · ') ||
+                    'No category'}
+                </p>
+                {loans.length > 0 && (
+                  <p className={`muted small${overdue ? ' text-bad' : ''}`}>
+                    Out with {loans.map((l) => l.personName).join(', ')}
+                  </p>
+                )}
+                <div className="item-card__flags">
+                  {item.condition !== 'good' && <ConditionBadge condition={item.condition} />}
+                  <ServiceBadge item={item} />
+                </div>
+              </div>
+            </Link>
+            <div className="item-card__actions">
+              <CheckOutButton item={item} onCheckOut={onCheckOut} />
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/** Dense rows for scanning a long inventory. */
+function ListView({ items, openLoansByItem, onCheckOut }: ViewProps) {
+  return (
+    <div className="table-wrap">
+      <table className="table item-table">
+        <thead>
+          <tr>
+            <th aria-label="Photo" />
+            <th>Item</th>
+            <th>ID</th>
+            <th>Category</th>
+            <th>Location</th>
+            <th>Stock</th>
+            <th>Out with</th>
+            <th aria-label="Actions" />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => {
+            const loans = openLoansByItem.get(item.id) ?? []
+            const overdue = loans.some((l) => l.isOverdue)
+            return (
+              <tr key={item.id} className={overdue ? 'is-overdue' : undefined}>
+                <td className="item-table__thumb">
+                  <ItemThumb item={item} size={36} />
+                </td>
+                <td>
+                  <Link className="link" to={`/inventory/${item.id}`}>
+                    {item.name}
+                  </Link>
+                  <div className="item-table__flags">
+                    {item.condition !== 'good' && <ConditionBadge condition={item.condition} />}
+                    <ServiceBadge item={item} />
+                  </div>
+                </td>
+                <td className="item-table__id">{item.idNumber || '—'}</td>
+                <td>{item.category || <span className="muted">—</span>}</td>
+                <td>{item.location || <span className="muted">—</span>}</td>
+                <td>
+                  <StockBadge item={item} />
+                </td>
+                <td className={overdue ? 'text-bad' : undefined}>
+                  {loans.length > 0 ? loans.map((l) => l.personName).join(', ') : <span className="muted">—</span>}
+                </td>
+                <td className="table__actions">
+                  <CheckOutButton item={item} onCheckOut={onCheckOut} />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Photo-first grid — for finding gear by how it looks. */
+function MosaicView({ items, openLoansByItem }: ViewProps) {
+  return (
+    <ul className="mosaic">
+      {items.map((item) => {
+        const overdue = (openLoansByItem.get(item.id) ?? []).some((l) => l.isOverdue)
+        return (
+          <li key={item.id} className={`mosaic__tile${overdue ? ' is-overdue' : ''}`}>
+            <Link to={`/inventory/${item.id}`} className="mosaic__link" title={item.name}>
+              {item.photoUrl ? (
+                <img className="mosaic__img" src={item.photoUrl} alt="" loading="lazy" />
+              ) : (
+                <span className="mosaic__img mosaic__img--empty" aria-hidden="true">
+                  📦
+                </span>
+              )}
+              <span className="mosaic__badge">
+                <StockBadge item={item} />
+              </span>
+              <span className="mosaic__caption">
+                <strong>{item.name}</strong>
+                {item.idNumber && <span>{item.idNumber}</span>}
+              </span>
+            </Link>
+          </li>
+        )
+      })}
+    </ul>
   )
 }

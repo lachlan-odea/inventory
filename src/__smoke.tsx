@@ -308,6 +308,19 @@ const adminState: Extract<AuthState, { status: 'staff' }> = {
   role: 'admin',
 }
 
+
+/** In-memory localStorage for SSR; cleared before every case. */
+const smokeStorage = new Map<string, string>()
+;(globalThis as { localStorage?: unknown }).localStorage = {
+  getItem: (key: string) => smokeStorage.get(key) ?? null,
+  setItem: (key: string, value: string) => void smokeStorage.set(key, value),
+}
+
+/** Presets saved preferences, then renders its children (which read them). */
+function WithStorage({ values, children }: { values: Record<string, string>; children: ReactElement }) {
+  for (const [k, v] of Object.entries(values)) smokeStorage.set(k, v)
+  return children
+}
 function withAuth(element: ReactElement, state: AuthState): ReactElement {
   return (
     <AuthContext.Provider value={{ state, refresh: async () => {} }}>{element}</AuthContext.Provider>
@@ -354,6 +367,41 @@ const cases: Case[] = [
     expect: ['Sony A6500', '1 of 2 in', 'STUDIO 102', 'SONY ILCE-6500', 'Not fit for service', 'SYD <span class="muted">2', 'ORD <span class="muted">0', 'SYD EVENT <span class="muted">0'],
     // The only MEL item is archived, so MEL gets no button in the active view.
     reject: ['MEL <span'],
+  },
+  {
+    name: 'Inventory (list view)',
+    route: '/inventory',
+    element: (
+      <WithStorage values={{ 'inventory.view': 'list' }}>
+        <Inventory />
+      </WithStorage>
+    ),
+    store: buildStore(),
+    expect: ['<table', 'Out with', 'STUDIO 102', 'Sony A6500', 'Ada Lovelace', 'class="is-on" aria-pressed="true" title="List view"'],
+  },
+  {
+    name: 'Inventory (mosaic view)',
+    route: '/inventory',
+    element: (
+      <WithStorage values={{ 'inventory.view': 'mosaic' }}>
+        <Inventory />
+      </WithStorage>
+    ),
+    store: buildStore(),
+    expect: ['mosaic__tile', 'Sony A6500', 'STUDIO 102'],
+    reject: ['<table', 'item-card'],
+  },
+  {
+    name: 'Inventory (saved ORD filter)',
+    route: '/inventory',
+    element: (
+      <WithStorage values={{ 'inventory.location': 'ORD' }}>
+        <Inventory />
+      </WithStorage>
+    ),
+    store: buildStore(),
+    // Every fixture item is in SYD, so filtering to ORD leaves nothing.
+    expect: ['Nothing matches'],
   },
   {
     name: 'Inventory (empty)',
@@ -639,6 +687,7 @@ let failed = runLogicTests()
 
 console.log('\nPage and dialog rendering')
 for (const testCase of cases) {
+  smokeStorage.clear()
   const { name, route, url, element, store, expect = [], reject = [] } = testCase
   try {
     const html = renderToString(
