@@ -1,7 +1,9 @@
 import {
   addDoc,
+  arrayUnion,
   collection,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -9,13 +11,14 @@ import {
   serverTimestamp,
   Timestamp,
   updateDoc,
+  where,
   writeBatch,
   type DocumentData,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import { shrinkImage, uploadImage } from './cloudinary'
 import { db } from './firebase'
-import type { Item, PhotoSession, PhotoSessionItem, PhotoUpload } from './types'
+import type { Item, PhotoSession, PhotoSessionFollow, PhotoSessionItem, PhotoUpload } from './types'
 
 /**
  * Photo sessions: a desk user shows a QR code, someone else scans it with a
@@ -50,7 +53,16 @@ export function captureUrl(sessionId: string): string {
 
 /* -------------------------------------------------------------------- desk */
 
-export async function createPhotoSession(items: Item[], label: string, createdBy: string): Promise<string> {
+/**
+ * @param follow  When set, items created in the inventory while the session is
+ *                live are added to it too (see `addItemToLivePhotoSessions`).
+ */
+export async function createPhotoSession(
+  items: Item[],
+  label: string,
+  createdBy: string,
+  follow: PhotoSessionFollow | null = null,
+): Promise<string> {
   if (items.length === 0) throw new Error('There are no items to photograph.')
   if (items.length > MAX_SESSION_ITEMS) {
     throw new Error(`A session can cover up to ${MAX_SESSION_ITEMS} items — filter the list down first.`)
@@ -70,8 +82,56 @@ export async function createPhotoSession(items: Item[], label: string, createdBy
     // Kept as a flat list too, so the rules can check membership cheaply.
     itemIds: sessionItems.map((i) => i.id),
     items: sessionItems,
+    follow,
   })
   return ref.id
+}
+
+/** Mirrors the Inventory page's location filter: "syd " and "SYD" are one studio. */
+function followMatches(follow: PhotoSessionFollow, item: Pick<Item, 'location' | 'category'>): boolean {
+  if (follow.location && item.location.trim().toUpperCase() !== follow.location.trim().toUpperCase()) return false
+  if (follow.category && item.category !== follow.category) return false
+  return true
+}
+
+/**
+ * Adds a just-created item to every live session that follows new items and
+ * whose scope it fits, so it appears on the phone within a moment of being
+ * saved at the desk. Returns how many sessions picked it up. Called from
+ * `createItem`; any staff member's desk can do this, not just the one that
+ * opened the session.
+ */
+export async function addItemToLivePhotoSessions(
+  item: Pick<Item, 'id' | 'name' | 'idNumber' | 'location' | 'category' | 'photoUrl'>,
+): Promise<number> {
+  // A single range filter needs no composite index; `follow` is checked here.
+  const live = await getDocs(query(sessionsCol, where('expiresAt', '>', Timestamp.now())))
+  const targets = live.docs.filter((snap) => {
+    const d = snap.data()
+    const follow = (d.follow ?? null) as PhotoSessionFollow | null
+    const itemIds: string[] = Array.isArray(d.itemIds) ? d.itemIds : []
+    return (
+      follow !== null &&
+      followMatches(follow, item) &&
+      !itemIds.includes(item.id) &&
+      itemIds.length < MAX_SESSION_ITEMS
+    )
+  })
+  if (targets.length === 0) return 0
+  const entry: PhotoSessionItem = {
+    id: item.id,
+    name: item.name,
+    idNumber: item.idNumber,
+    location: item.location,
+    photoUrl: item.photoUrl,
+    // A client clock, not serverTimestamp(): Firestore doesn't allow the
+    // latter inside an array, and this only orders items on the phone.
+    addedAt: Date.now(),
+  }
+  await Promise.all(
+    targets.map((snap) => updateDoc(snap.ref, { itemIds: arrayUnion(item.id), items: arrayUnion(entry) })),
+  )
+  return targets.length
 }
 
 /** Ends a session now. The phone's page notices and stops offering uploads. */
@@ -106,8 +166,10 @@ export function watchSessionUploads(
 /* ------------------------------------------------------------------- phone */
 
 /**
- * Live view of a session. Once it expires or is ended the rules deny the read,
- * which arrives here as `onGone`; a link that never existed does the same.
+ * Live view of a session — the phone's page, and the desk dialog's item count.
+ * Items added to the inventory mid-session arrive here too. Once it expires or
+ * is ended the rules deny the read, which arrives here as `onGone`; a link
+ * that never existed does the same.
  */
 export function watchPhotoSession(
   sessionId: string,
@@ -134,6 +196,7 @@ export function watchPhotoSession(
         createdAt: d.createdAt ?? null,
         expiresAt,
         items: Array.isArray(d.items) ? (d.items as PhotoSessionItem[]) : [],
+        follow: (d.follow ?? null) as PhotoSessionFollow | null,
       })
     },
     (err) => {

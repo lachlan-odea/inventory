@@ -21,6 +21,7 @@ import {
 import { uploadImage } from './cloudinary'
 import { db } from './firebase'
 import { parseDueDate } from './format'
+import { addItemToLivePhotoSessions } from './photoSessions'
 import { normaliseComponents } from './kits'
 import type {
   BookingCheckOutInput,
@@ -191,6 +192,13 @@ export async function createItem(input: NewItemInput, photo?: File | null): Prom
     updatedAt: serverTimestamp(),
   })
   if (photo) await setItemPhoto(docRef.id, photo)
+  // Someone may be photographing gear on a phone right now; offer them this
+  // item too. The item is saved either way — this is best effort.
+  try {
+    await addItemToLivePhotoSessions({ ...input, id: docRef.id, photoUrl: null })
+  } catch (err) {
+    console.warn('Could not add the new item to live photo sessions', err)
+  }
   return docRef.id
 }
 

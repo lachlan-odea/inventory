@@ -7,7 +7,7 @@ import { ImportDialog } from '../components/ImportDialog'
 import { PhoneCameraDialog } from '../components/PhoneCameraDialog'
 import { EmptyState, ItemThumb, StockBadge, ConditionBadge, ServiceBadge } from '../components/ui'
 import { plural } from '../lib/format'
-import { STUDIO_LOCATIONS, type Item, type LoanView } from '../lib/types'
+import { STUDIO_LOCATIONS, type Item, type LoanView, type PhotoSessionFollow } from '../lib/types'
 
 type StockFilter = 'all' | 'available' | 'out'
 
@@ -58,8 +58,10 @@ export function Inventory() {
   const [showArchived, setShowArchived] = useState(false)
   const [adding, setAdding] = useState(false)
   const [importing, setImporting] = useState(false)
-  // Frozen when opened, so the session covers what was on screen at the time.
+  // Frozen when opened, so the session covers what was on screen at the time —
+  // plus, via `phoneFollow`, anything added later that fits the same filters.
   const [phoneItems, setPhoneItems] = useState<Item[] | null>(null)
+  const [phoneFollow, setPhoneFollow] = useState<PhotoSessionFollow | null>(null)
   const [checkOutItem, setCheckOutItem] = useState<Item | null>(null)
 
   const categories = useMemo(
@@ -131,7 +133,13 @@ export function Inventory() {
             className="btn btn--ghost"
             disabled={visible.length === 0}
             title="Show a QR code so someone can photograph the items listed below on their phone"
-            onClick={() => setPhoneItems(visible)}
+            onClick={() => {
+              setPhoneFollow({
+                location: location === 'all' ? '' : location,
+                category: category === 'all' ? '' : category,
+              })
+              setPhoneItems(visible)
+            }}
           >
             📱 Photos from phone
           </button>
@@ -252,6 +260,7 @@ export function Inventory() {
           label={[location === 'all' ? 'All locations' : location, category === 'all' ? '' : category]
             .filter(Boolean)
             .join(' · ')}
+          follow={phoneFollow}
           onClose={() => setPhoneItems(null)}
         />
       )}

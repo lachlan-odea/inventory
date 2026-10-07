@@ -168,6 +168,13 @@ rear camera opens, and the photo is set as that item's photo straight away. The
 desk dialog lists photos as they arrive. A session covers the items the inventory
 list was showing when it was opened, so filter by location or category first.
 
+Items added to the inventory while a session is live join it as well, as long
+as they fit the location and category it was opened with — so one person can
+type gear in at the desk (any desk, not just the one showing the QR code) while
+another photographs it. New items go to the top of the phone's list with a
+**New** tag, and the desk dialog's item count climbs. Single-item sessions from
+an item's page stay fixed to that item.
+
 The phone doesn't sign in — the unguessable session ID in the QR code is the
 only key, so treat the code like a temporary password. `firestore.rules` limits
 what it unlocks to:

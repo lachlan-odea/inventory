@@ -11,17 +11,31 @@ import {
   publicUrl,
   endPhotoSession,
   SESSION_HOURS,
+  watchPhotoSession,
   watchSessionUploads,
 } from '../lib/photoSessions'
 import { describeFirebaseError } from '../lib/store'
-import type { Item, PhotoUpload } from '../lib/types'
+import type { Item, PhotoSessionFollow, PhotoUpload } from '../lib/types'
 
 interface PhoneCameraDialogProps {
   /** The items the phone will be offered. */
   items: Item[]
   /** Shown on the phone so the photographer knows what they're working through. */
   label: string
+  /**
+   * When set, items created in the inventory while the session is live join
+   * it too — so one person can type gear in while another photographs it.
+   * Omit for a fixed set, such as a single item.
+   */
+  follow?: PhotoSessionFollow | null
   onClose: () => void
+}
+
+/** "for SYD", "in Camera", "for SYD in Camera", or '' when it follows everything. */
+function describeFollow(follow: PhotoSessionFollow): string {
+  return [follow.location && `for ${follow.location}`, follow.category && `in ${follow.category}`]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**
@@ -30,7 +44,7 @@ interface PhoneCameraDialogProps {
  * is ended here. Closing the dialog leaves the session running — the person on
  * the phone may well still be working.
  */
-export function PhoneCameraDialog({ items, label, onClose }: PhoneCameraDialogProps) {
+export function PhoneCameraDialog({ items, label, follow = null, onClose }: PhoneCameraDialogProps) {
   const toast = useToast()
   const { state } = useAuth()
   const email = state.status === 'staff' ? (state.user.email ?? '') : ''
@@ -39,6 +53,8 @@ export function PhoneCameraDialog({ items, label, onClose }: PhoneCameraDialogPr
   const [qr, setQr] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploads, setUploads] = useState<PhotoUpload[]>([])
+  // How many items the session covers now — grows as colleagues add gear.
+  const [liveCount, setLiveCount] = useState<number | null>(null)
   const [ended, setEnded] = useState(false)
   const [expiresAt] = useState(() => new Date(Date.now() + SESSION_HOURS * 3600_000))
   // StrictMode mounts effects twice in development; one session is plenty.
@@ -51,10 +67,10 @@ export function PhoneCameraDialog({ items, label, onClose }: PhoneCameraDialogPr
       setError('Photo uploads are not set up yet — add the Cloudinary settings (see .env.example).')
       return
     }
-    createPhotoSession(items, label, email)
+    createPhotoSession(items, label, email, follow)
       .then(setSessionId)
       .catch((err) => setError(describeFirebaseError(err)))
-  }, [items, label, email])
+  }, [items, label, email, follow])
 
   const url = sessionId ? captureUrl(sessionId) : null
 
@@ -69,6 +85,17 @@ export function PhoneCameraDialog({ items, label, onClose }: PhoneCameraDialogPr
     if (!sessionId) return
     return watchSessionUploads(sessionId, setUploads, (err) => setError(describeFirebaseError(err)))
   }, [sessionId])
+
+  useEffect(() => {
+    if (!sessionId || !follow) return
+    // Only the count matters here; ending and expiry are handled above.
+    return watchPhotoSession(
+      sessionId,
+      (session) => setLiveCount(session.items.length),
+      () => undefined,
+      () => undefined,
+    )
+  }, [sessionId, follow])
 
   // A dev server is rarely reachable from a phone: "localhost" is the phone
   // itself, and a LAN address is usually blocked by the firewall or the wifi.
@@ -97,11 +124,13 @@ export function PhoneCameraDialog({ items, label, onClose }: PhoneCameraDialogPr
   }
 
   const photographed = new Set(uploads.map((u) => u.itemId)).size
+  const itemCount = liveCount ?? items.length
+  const addedCount = Math.max(0, itemCount - items.length)
 
   return (
     <Modal
       title="Take photos on a phone"
-      subtitle={`${label} · ${plural(items.length, 'item')}`}
+      subtitle={`${label} · ${plural(itemCount, 'item')}`}
       onClose={onClose}
       footer={
         <>
@@ -134,7 +163,16 @@ export function PhoneCameraDialog({ items, label, onClose }: PhoneCameraDialogPr
               <li>Scan this with the phone's camera app.</li>
               <li>Tap an item, take the photo — it's saved to that item straight away.</li>
               <li>No sign-in needed on the phone.</li>
+              {follow && (
+                <li>
+                  Items added to the inventory {describeFollow(follow) || 'anywhere'} while this
+                  runs appear on the phone too, so someone else can keep entering gear.
+                </li>
+              )}
             </ol>
+            {addedCount > 0 && (
+              <p className="muted small">{plural(addedCount, 'item')} added since the session opened.</p>
+            )}
             <p className="muted small">
               The link works until{' '}
               {expiresAt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} or

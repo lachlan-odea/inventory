@@ -87,16 +87,25 @@ export function CaptureSession({ session }: { session: PhotoSession }) {
 
   const single = session.items.length === 1 ? session.items[0]! : null
 
+  // Items a colleague added to the inventory since the session opened: they
+  // arrive live via the session doc and go to the top, newest first, so the
+  // photographer finds them without scrolling.
+  const added = useMemo(
+    () => session.items.filter((i) => i.addedAt).sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0)),
+    [session.items],
+  )
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return session.items.filter((item) => {
+    const ordered = [...added, ...session.items.filter((i) => !i.addedAt)]
+    return ordered.filter((item) => {
       // Items photographed in this session stay put, ticked, rather than
       // vanishing from the "needs a photo" list mid-shoot.
       if (onlyMissing && item.photoUrl && !shots[item.id]) return false
       if (!q) return true
       return [item.name, item.idNumber, item.location].join(' ').toLowerCase().includes(q)
     })
-  }, [session.items, search, onlyMissing, shots])
+  }, [session.items, added, search, onlyMissing, shots])
 
   const doneCount = Object.values(shots).filter((s) => s.status === 'done').length
 
@@ -131,7 +140,12 @@ export function CaptureSession({ session }: { session: PhotoSession }) {
           <p className="muted small">
             {single
               ? single.idNumber || 'Take a photo of this item.'
-              : `${plural(session.items.length, 'item')} · ${doneCount} photographed`}
+              : [
+                  `${plural(session.items.length, 'item')} · ${doneCount} photographed`,
+                  added.length > 0 ? `${plural(added.length, 'new item')} added since you started` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
           </p>
         </div>
       </header>
@@ -209,7 +223,14 @@ function CaptureRow({ item, shot, onShoot }: { item: PhotoSessionItem; shot?: Sh
         </span>
       )}
       <div className="capture-row__body">
-        <strong>{item.name}</strong>
+        <strong>
+          {item.addedAt ? (
+            <span className="badge badge--new" title="Added to the inventory while this session was open">
+              New
+            </span>
+          ) : null}{' '}
+          {item.name}
+        </strong>
         <span className="muted small">{[item.idNumber, item.location].filter(Boolean).join(' · ')}</span>
         <ShotStatus shot={shot} />
       </div>

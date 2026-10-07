@@ -219,6 +219,21 @@ export interface PhotoSessionItem {
   idNumber: string
   location: string
   photoUrl: string | null
+  /**
+   * Set (ms since epoch) on items that joined after the session was opened —
+   * typically typed into the inventory by a colleague while the shoot was on —
+   * so the phone can put them where the photographer will see them.
+   */
+  addedAt?: number
+}
+
+/**
+ * Which newly created items join a live session as they're added, so one
+ * person can enter gear at the desk while another photographs it. '' = any.
+ */
+export interface PhotoSessionFollow {
+  location: string
+  category: string
 }
 
 /**
@@ -235,6 +250,8 @@ export interface PhotoSession {
   createdAt: Timestamp | null
   expiresAt: Timestamp | null
   items: PhotoSessionItem[]
+  /** Null for a fixed set (e.g. a single item from its detail page). */
+  follow: PhotoSessionFollow | null
 }
 
 /** One photo taken in a session, logged so the desk can watch them arrive. */

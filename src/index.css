@@ -440,6 +440,11 @@ p {
   background: var(--bad-soft);
   color: var(--bad);
 }
+.badge--new {
+  background: var(--accent-soft);
+  color: var(--accent);
+  vertical-align: middle;
+}
 .badge--muted {
   background: var(--surface-2);
   color: var(--text-muted);

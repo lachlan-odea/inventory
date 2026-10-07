@@ -357,6 +357,7 @@ const photoSession: PhotoSession = {
     { id: 'cam1', name: 'Sony A6500', idNumber: 'STUDIO 102', location: 'SYD', photoUrl: null },
     { id: 'cbl1', name: 'XLR cable 5m', idNumber: '', location: 'SYD', photoUrl: 'https://res.cloudinary.com/demo/x.jpg' },
   ],
+  follow: { location: 'SYD', category: 'Camera' },
 }
 
 const cases: Case[] = [
@@ -675,6 +676,21 @@ const cases: Case[] = [
     expect: ['Take photos on a phone', 'SYD · 2 items', 'Scan this with the phone', 'Copy link'],
   },
   {
+    name: 'PhoneCameraDialog (follows new items)',
+    route: '/',
+    element: withAuth(
+      <PhoneCameraDialog
+        items={items.slice(0, 2)}
+        label="SYD"
+        follow={{ location: 'SYD', category: '' }}
+        onClose={noop}
+      />,
+      adminState,
+    ),
+    store: buildStore(),
+    expect: ['Items added to the inventory for SYD while this'],
+  },
+  {
     name: 'Inventory offers phone photos',
     route: '/inventory',
     element: <Inventory />,
@@ -704,6 +720,23 @@ const cases: Case[] = [
     // Needs-a-photo is on by default, so the cable (already photographed) is hidden.
     expect: ['SYD · Camera', '2 items · 0 photographed', 'Sony A6500', 'Needs a photo', 'capture="environment"'],
     reject: ['XLR cable 5m'],
+  },
+  {
+    name: 'CaptureSession (item added mid-session)',
+    route: '/',
+    element: (
+      <CaptureSession
+        session={{
+          ...photoSession,
+          items: [
+            ...photoSession.items,
+            { id: 'lt1', name: 'Aputure 300d', idNumber: 'STUDIO 210', location: 'SYD', photoUrl: null, addedAt: 1 },
+          ],
+        }}
+      />
+    ),
+    store: empty,
+    expect: ['3 items · 0 photographed', '1 new item added since you started', 'badge--new', 'Aputure 300d'],
   },
   {
     name: 'CaptureSession (single item)',

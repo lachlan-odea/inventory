@@ -109,8 +109,13 @@ service cloud.firestore {
         && request.resource.data.items is list
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt <= request.time + duration.value(12, 'h');
-      // Ending a session early sets expiresAt to now.
-      allow update, delete: if isStaff();
+      // Ending a session early sets expiresAt to now; adding an item created
+      // mid-session appends to itemIds/items (any staff desk may do this).
+      allow update: if isStaff()
+        && request.resource.data.itemIds is list
+        && request.resource.data.itemIds.size() <= 2000
+        && request.resource.data.items is list;
+      allow delete: if isStaff();
 
       match /uploads/{uploadId} {
         allow read: if isStaff();
